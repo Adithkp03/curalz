@@ -35,7 +35,7 @@ export const getPatients = async (req: AuthRequest, res: Response) => {
  * Get patient profile
  */
 export const getPatientProfile = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     try {
         if (req.user.role !== 'caregiver') {
@@ -67,7 +67,7 @@ export const getPatientProfile = async (req: AuthRequest, res: Response) => {
  * Update patient profile
  */
 export const updatePatientProfile = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { name, email } = req.body;
 
     try {
@@ -104,7 +104,7 @@ export const updatePatientProfile = async (req: AuthRequest, res: Response) => {
  * Get patient activity (recent thoughts/conversations)
  */
 export const getPatientActivity = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { limit = 10 } = req.query;
 
     try {
@@ -181,7 +181,7 @@ export const linkPatient = async (req: AuthRequest, res: Response) => {
  * Add a memory for a patient
  */
 export const addMemoryForPatient = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     let { message, imageUrl, mediaType, mimeType } = req.body;
 
     try {
@@ -264,7 +264,7 @@ export const addMemoryForPatient = async (req: AuthRequest, res: Response) => {
  * Add a Photo Memory for a patient
  */
 export const addPhotoMemoryForPatient = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { title, year, category, caption, imageUrl } = req.body;
 
     try {
@@ -317,7 +317,7 @@ export const addPhotoMemoryForPatient = async (req: AuthRequest, res: Response) 
  * Add a Story Memory for a patient
  */
 export const addStoryMemoryForPatient = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { title, year, description, mood } = req.body;
 
     try {
@@ -368,7 +368,7 @@ export const addStoryMemoryForPatient = async (req: AuthRequest, res: Response) 
  * Add a Place Memory for a patient
  */
 export const addPlaceMemoryForPatient = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { placeName, address, category, description, photoUrl } = req.body;
 
     try {
@@ -420,7 +420,7 @@ export const addPlaceMemoryForPatient = async (req: AuthRequest, res: Response) 
  * Create an event for a patient
  */
 export const createEventForPatient = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { title, description, datetime, importance } = req.body;
 
     try {
@@ -469,7 +469,7 @@ export const createEventForPatient = async (req: AuthRequest, res: Response) => 
  * Get all events for a patient
  */
 export const getPatientEvents = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     try {
         if (req.user.role !== 'caregiver') {
@@ -496,7 +496,7 @@ export const getPatientEvents = async (req: AuthRequest, res: Response) => {
  * Update a patient event
  */
 export const updatePatientEvent = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params; // Event ID
+    const id = String(req.params.id); // Event ID
 
     try {
         if (req.user.role !== 'caregiver') {
@@ -529,7 +529,7 @@ export const updatePatientEvent = async (req: AuthRequest, res: Response) => {
  * Delete a patient event
  */
 export const deletePatientEvent = async (req: AuthRequest, res: Response) => {
-    const { id } = req.params; // Event ID
+    const id = String(req.params.id); // Event ID
 
     try {
         if (req.user.role !== 'caregiver') {

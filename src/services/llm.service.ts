@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY});
+const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY});
 
 const buildPrompt = (
   userMessage: string,
@@ -37,7 +37,7 @@ export const generateChatResponse = async (
 ): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: process.env.GEMINI_CHAT_MODEL || "gemini-3-flash-preview",
       contents: [
         {
           role: "user",
@@ -57,7 +57,7 @@ export async function* streamChatResponse(
   relevantMemories: Array<{ rawText: string; timestamp: Date; imageUrl?: string; mediaType?: string }> = [],
 ): AsyncGenerator<string> {
   const stream = await ai.models.generateContentStream({
-    model: "gemini-3-flash-preview",
+    model: process.env.GEMINI_CHAT_MODEL || "gemini-3-flash-preview",
     contents: [
       {
         role: "user",

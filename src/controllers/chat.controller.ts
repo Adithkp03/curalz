@@ -8,6 +8,14 @@ import {
   streamChatResponse,
 } from "../services/llm.service";
 import { thoughtQueue } from "../queues/thought.queue";
+import { processThought } from '../services/thought.service';
+import { start } from 'workflow/api';
+import { rememberThought } from '../workflows/thought';
+const persistThought = async (data: Parameters<typeof processThought>[0]) => {
+  if (process.env.THOUGHT_PROCESSING_MODE === 'workflow') return start(rememberThought, [data]);
+  if (thoughtQueue) return thoughtQueue.add('process-thought', data);
+  return processThought(data);
+};
 import { Timer } from "../utils/timer";
 
 interface AuthRequest extends Request {
@@ -44,10 +52,13 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
 
     timer.end();
 
-    const qdrantId = uuidv4();
+    // Optional client UUID makes retried requests reuse the same memory identity.
+    const suppliedId = req.headers['idempotency-key'];
+    if (suppliedId && (typeof suppliedId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suppliedId))) throw new Error('Idempotency-Key must be a UUID v4');
+    const qdrantId = suppliedId || uuidv4();
     const timestamp = new Date();
 
-    await thoughtQueue.add("process-thought", {
+    await persistThought({
       qdrantId,
       userId: userId.toString(),
       rawText: message,
@@ -104,7 +115,10 @@ export const sendMessageStream = async (req: AuthRequest, res: Response) => {
       searchSimilarMemories(embedding, userId.toString(), 5),
     );
 
-    const qdrantId = uuidv4();
+    // Optional client UUID makes retried requests reuse the same memory identity.
+    const suppliedId = req.headers['idempotency-key'];
+    if (suppliedId && (typeof suppliedId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suppliedId))) throw new Error('Idempotency-Key must be a UUID v4');
+    const qdrantId = suppliedId || uuidv4();
     const timestamp = new Date();
 
     // Send thought metadata immediately so the client can render it right away
@@ -144,7 +158,7 @@ export const sendMessageStream = async (req: AuthRequest, res: Response) => {
     );
 
     // 4. Enqueue background job after response is fully streamed
-    await thoughtQueue.add("process-thought", {
+    await persistThought({
       qdrantId,
       userId: userId.toString(),
       rawText: message,
