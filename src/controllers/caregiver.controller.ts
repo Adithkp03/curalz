@@ -151,6 +151,7 @@ export const linkPatient = async (req: AuthRequest, res: Response) => {
 export const addMemoryForPatient = async (req: AuthRequest, res: Response) => {
     const id = String(req.params.id);
     let { message, imageUrl, mediaType, mimeType } = req.body;
+    if (imageUrl) return res.status(403).json({error:'Media attachment sharing is disabled pending patient-approved access.'});
 
     try {
         if (req.user.role !== 'caregiver') {
@@ -231,54 +232,8 @@ export const addMemoryForPatient = async (req: AuthRequest, res: Response) => {
 /**
  * Add a Photo Memory for a patient
  */
-export const addPhotoMemoryForPatient = async (req: AuthRequest, res: Response) => {
-    const id = String(req.params.id);
-    const { title, year, category, caption, imageUrl } = req.body;
-
-    try {
-        if (!req.user.linkedPatientIds?.some((pid: any) => pid.toString() === id)) {
-            return res.status(403).json({ error: 'Patient not linked to this caregiver' });
-        }
-
-        if (!imageUrl) {
-            return res.status(400).json({ error: 'Image URL is required' });
-        }
-
-        const searchableText = `${title || ""} ${caption || ""} ${category || ""} Photo from ${year || "the past"}`.trim();
-        const embedding = await generateEmbedding(searchableText);
-
-        const qdrantId = uuidv4();
-        const memory = await Memory.create({
-            userId: id,
-            qdrantId,
-            type: "photo",
-            title,
-            year,
-            createdBy: "caregiver",
-            timestamp: new Date(),
-            data: {
-                imageUrl,
-                category,
-                caption
-            }
-        });
-
-        await storeVector(qdrantId, embedding, {
-            userId: id.toString(),
-            memoryId: memory._id.toString(),
-            type: "photo",
-            searchableText,
-            timestamp: new Date(),
-            title,
-            year,
-            category,
-            imageUrl
-        });
-
-        res.json({ message: 'Photo memory added successfully', memory });
-    } catch (error: any) {
-        res.status(500).json({ error: error.message });
-    }
+export const addPhotoMemoryForPatient = async (_req: AuthRequest, res: Response) => {
+    return res.status(403).json({error:'Photo memory sharing is disabled pending patient-approved access.'});
 };
 
 /**
@@ -338,6 +293,7 @@ export const addStoryMemoryForPatient = async (req: AuthRequest, res: Response) 
 export const addPlaceMemoryForPatient = async (req: AuthRequest, res: Response) => {
     const id = String(req.params.id);
     const { placeName, address, category, description, photoUrl } = req.body;
+    if (photoUrl) return res.status(403).json({error:'Photo sharing is disabled pending patient-approved access.'});
 
     try {
         if (!req.user.linkedPatientIds?.some((pid: any) => pid.toString() === id)) {
