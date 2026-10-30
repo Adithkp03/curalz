@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getSignedUploadUrl, getSignedReadUrl, inferMediaType } from "../services/upload.service";
+import { getSignedUploadUrl, getSignedReadUrl, deleteOwnedMedia, inferMediaType } from "../services/upload.service";
 
 interface AuthRequest extends Request {
   user?: any;
@@ -41,4 +41,13 @@ export const getReadUrl = async (req: AuthRequest, res: Response) => {
     if(typeof req.body.path !== 'string') return res.status(400).json({error:'path is required'});
     return res.json(await getSignedReadUrl(req.user._id.toString(),req.body.path));
   } catch { return res.status(403).json({error:'Media access denied'}); }
+};
+
+export const deleteMedia = async (req: AuthRequest, res: Response) => {
+  try {
+    if(!req.user) return res.status(401).json({error:'Not authorized'});
+    if(typeof req.body.path !== 'string') return res.status(400).json({error:'path is required'});
+    await deleteOwnedMedia(req.user._id.toString(),req.body.path);
+    return res.json({deleted:true});
+  } catch {return res.status(403).json({error:'Media access denied'});}
 };

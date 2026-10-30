@@ -19,3 +19,10 @@ export async function getSignedReadUrl(userId: string, path: string) {
   if(error || !data) throw new Error('Media not found');
   return {signedUrl:data.signedUrl,expiresIn:300,path};
 }
+
+export async function deleteOwnedMedia(userId: string, path: string) {
+  // Reuse the strict ownership/key validation before issuing deletion.
+  await getSignedReadUrl(userId,path);
+  const {error} = await getSupabase().storage.from(MEDIA_BUCKET).remove([path]);
+  if(error) throw new Error('Media deletion failed');
+}
