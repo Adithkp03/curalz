@@ -1,46 +1,21 @@
-import { supabase, MEDIA_BUCKET } from "../config/supabase";
-
-export type MediaType = "image" | "video";
-
-export interface SignedUploadResult {
-  signedUrl: string;
-  path: string;
-  publicUrl: string;
+import { randomUUID } from 'node:crypto';
+import { getSupabase, MEDIA_BUCKET } from '../config/supabase';
+export type MediaType = 'image' | 'video';
+const MIME_EXT: Record<string,string> = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp','video/mp4':'mp4'};
+export const inferMediaType = (mime: string): MediaType => mime.startsWith('video/') ? 'video' : 'image';
+export async function getSignedUploadUrl(userId: string, _fileName: string, mimeType: string) {
+  const ext = MIME_EXT[mimeType];
+  if (!ext) throw new Error('Unsupported media type');
+  const path = `${userId}/${randomUUID()}.${ext}`;
+  const {data,error} = await getSupabase().storage.from(MEDIA_BUCKET).createSignedUploadUrl(path);
+  if (error || !data) throw new Error('Failed to sign upload');
+  return {signedUrl:data.signedUrl,path};
 }
-
-export const getSignedUploadUrl = async (
-  userId: string,
-  fileName: string,
-  mimeType: string,
-): Promise<SignedUploadResult> => {
-  const ext = fileName.split(".").pop();
-  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-  const { data, error } = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .createSignedUploadUrl(path);
-
-  if (error || !data) {
-    throw new Error(`Failed to create signed upload URL: ${error?.message}`);
-  }
-
-  const { data: urlData } = supabase.storage
-    .from(MEDIA_BUCKET)
-    .getPublicUrl(path);
-
-  return {
-    signedUrl: data.signedUrl,
-    path,
-    publicUrl: urlData.publicUrl,
-  };
-};
-
-export const getPublicUrl = (path: string): string => {
-  const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
-};
-
-export const inferMediaType = (mimeType: string): MediaType => {
-  if (mimeType.startsWith("video/")) return "video";
-  return "image";
-};
+export async function getSignedReadUrl(userId: string, path: string) {
+  // Object identifiers, not arbitrary URLs. A caregiver reads their own uploads;
+  // sharing to a patient needs a verified invitation/ownership transfer first.
+  if (!path.startsWith(`${userId}/`) || path.includes('..') || !/^[a-f0-9]{24}\/[a-f0-9-]{36}\.(jpg|png|webp|mp4)$/.test(path)) throw new Error('Media access denied');
+  const {data,error} = await getSupabase().storage.from(MEDIA_BUCKET).createSignedUrl(path,300);
+  if(error || !data) throw new Error('Media not found');
+  return {signedUrl:data.signedUrl,expiresIn:300,path};
+}

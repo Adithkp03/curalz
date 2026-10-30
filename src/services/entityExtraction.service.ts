@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY});
+const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY});
 
 interface ExtractedEntities {
     people: string[];
@@ -23,7 +23,7 @@ Example response format:
 JSON response:`;
 
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
+            model: process.env.GEMINI_CHAT_MODEL || "gemini-3.1-flash-lite",
             contents: [
                 { role: "user", parts: [{ text: prompt }] }
             ]

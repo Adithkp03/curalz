@@ -3,9 +3,11 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "build": "bun x tsc",
+    "build": "nitro build",
     "start": "bun dist/server.js",
-    "dev": "bun --watch src/server.ts"
+    "dev": "nitro dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
@@ -18,7 +20,9 @@
     "@types/node-cron": "^3.0.11",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^11.0.0",
-    "@types/yamljs": "^0.2.34"
+    "@types/yamljs": "^0.2.34",
+    "rolldown": "^1.2.16",
+    "vitest": "^5.0.5"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -40,10 +44,13 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.0",
     "mongoose": "^9.2.3",
+    "nitro": "^3.0.261029-rc",
     "node-cron": "^4.2.1",
     "redis": "^5.11.0",
+    "rollup": "^4.66.0",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^13.0.0",
+    "workflow": "^5.2.3",
     "yamljs": "^0.3.0"
   }
 }
