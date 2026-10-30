@@ -1,4 +1,4 @@
-import { supabase, MEDIA_BUCKET } from "../config/supabase";
+import { getSupabase, MEDIA_BUCKET } from "../config/supabase";
 
 export type MediaType = "image" | "video";
 
@@ -16,7 +16,7 @@ export const getSignedUploadUrl = async (
   const ext = fileName.split(".").pop();
   const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-  const { data, error } = await supabase.storage
+  const { data, error } = await getSupabase().storage
     .from(MEDIA_BUCKET)
     .createSignedUploadUrl(path);
 
@@ -24,7 +24,7 @@ export const getSignedUploadUrl = async (
     throw new Error(`Failed to create signed upload URL: ${error?.message}`);
   }
 
-  const { data: urlData } = supabase.storage
+  const { data: urlData } = getSupabase().storage
     .from(MEDIA_BUCKET)
     .getPublicUrl(path);
 
@@ -36,7 +36,7 @@ export const getSignedUploadUrl = async (
 };
 
 export const getPublicUrl = (path: string): string => {
-  const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path);
+  const { data } = getSupabase().storage.from(MEDIA_BUCKET).getPublicUrl(path);
   return data.publicUrl;
 };
 
