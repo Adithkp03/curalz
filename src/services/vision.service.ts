@@ -16,7 +16,7 @@ export const captionImage = async (
   const base64 = Buffer.from(buffer).toString("base64");
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: process.env.GEMINI_CHAT_MODEL || "gemini-3.1-flash-lite",
     contents: [
       {
         role: "user",

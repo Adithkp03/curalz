@@ -1,9 +1,6 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import swaggerUi from "swagger-ui-express";
-import YAML from "yamljs";
-import path from "path";
 import connectDB from "./config/db";
 import { initializeQdrant } from "./services/qdrant.service";
 
@@ -48,10 +45,6 @@ app.use("/api/caregiver", caregiverRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/patient", patientRoutes);
 app.use("/api/elevenlabs", elevenlabsRoutes);
-
-// Swagger Documentation
-const swaggerDocument = YAML.load(path.join(process.cwd(), "docs/swagger.yaml"));
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.get("/", (req, res) => {
   res.send("Medical Memory Assistant API is running");
