@@ -37,7 +37,7 @@ export const generateChatResponse = async (
 ): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: process.env.GEMINI_CHAT_MODEL || "gemini-3-flash-preview",
+      model: process.env.GEMINI_CHAT_MODEL || "gemini-3.1-flash-lite",
       contents: [
         {
           role: "user",
@@ -57,7 +57,7 @@ export async function* streamChatResponse(
   relevantMemories: Array<{ rawText: string; timestamp: Date; imageUrl?: string; mediaType?: string }> = [],
 ): AsyncGenerator<string> {
   const stream = await ai.models.generateContentStream({
-    model: process.env.GEMINI_CHAT_MODEL || "gemini-3-flash-preview",
+    model: process.env.GEMINI_CHAT_MODEL || "gemini-3.1-flash-lite",
     contents: [
       {
         role: "user",
