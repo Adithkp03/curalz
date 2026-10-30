@@ -6,7 +6,8 @@
     "build": "nitro build",
     "start": "bun dist/server.js",
     "dev": "nitro dev",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
@@ -20,7 +21,8 @@
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^11.0.0",
     "@types/yamljs": "^0.2.34",
-    "rolldown": "^1.2.16"
+    "rolldown": "^1.2.16",
+    "vitest": "^5.0.5"
   },
   "peerDependencies": {
     "typescript": "^5"
