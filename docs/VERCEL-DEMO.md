@@ -32,3 +32,8 @@ Live ElevenLabs voice is optional and disabled without ELEVENLABS_API_KEY and EL
 
 ## Unfinished inherited features
 Voice conversation screen; hardcoded flashcards and caregiver profile; chat image upload; contact delete endpoint; default 911 contact; settings switches; closed-app voice reminders; password reset and Google sign-in. This branch does not make those features complete.
+
+## Connected synthetic checks (October 30, 2026)
+A clean clone built successfully after tracking the previously ignored src/index.ts entrypoint. Dedicated MongoDB, Qdrant and Gemini passed register201, login200, chat200 and history200. Replaying the same UUID Idempotency-Key left one memory. A second patient saw an empty history; no-token requests returned401, a patient on a caregiver route403, and an unlinked caregiver reading a patient403. Synthetic users/memories were deleted and zero matching vectors confirmed. These connected checks used inline mode only as a local harness; they do not prove hosted Workflow recovery.
+
+The inherited email-only caregiver linking route is not consent-based: knowing a patient's email allows a caregiver to link themselves. Do not use this prototype with real people or patient data until patient approval or invitation-based authorization is implemented and tested. Media remains disabled pending private object storage and authorized expiring reads. Baseline APK builds do not prove installation or runtime behavior and retain the old API until rebuilt with the new verified URL.
