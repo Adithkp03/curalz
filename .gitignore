@@ -36,3 +36,8 @@ index.ts
 list_models.ts
 learning.md
 redis.ts
+/.swc
+
+.vercel/
+.nitro/
+.output/

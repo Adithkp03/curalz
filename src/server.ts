@@ -3,7 +3,7 @@ import app from "./app";
 import connectDB from "./config/db";
 import { setupQdrant } from "./config/qdrant";
 import dotenv from "dotenv";
-import "./queues/thought.worker";
+if (!["inline", "workflow"].includes(process.env.THOUGHT_PROCESSING_MODE || "")) import("./queues/thought.worker");
 
 dotenv.config();
 
@@ -18,12 +18,12 @@ const REQUIRED_ENV_VARS = [
   "QDRANT_URL",
   "QDRANT_API_KEY",
   "SUPABASE_URL",
-  "SUPABASE_PUBLISHABLE_KEY",
-  "GEMINI_API_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "GOOGLE_API_KEY",
  
 ];
 
-const missing = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+const missing = REQUIRED_ENV_VARS.filter((key) => !(["inline", "workflow"].includes(process.env.THOUGHT_PROCESSING_MODE || "") && key.startsWith("REDIS_")) && !process.env[key]);
 if (missing.length > 0) {
   console.error("\n❌ FATAL: Missing required environment variables:");
   missing.forEach((key) => console.error(`   - ${key}`));

@@ -19,7 +19,7 @@ export const getMemoriesByType = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: `Invalid memory type. Must be one of: ${validTypes.join(", ")}` });
     }
 
-    const memories = await Memory.find({ userId, type: typeParam })
+    const memories = await Memory.find({ userId, type: typeParam as "photo" | "story" | "place" | "chat" })
       .sort({ timestamp: -1 })
       .limit(Number(limit))
       .skip(Number(skip));

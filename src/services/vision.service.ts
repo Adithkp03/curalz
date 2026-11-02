@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY});
+const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY});
 
 export const captionImage = async (
   publicUrl: string,
@@ -16,7 +16,7 @@ export const captionImage = async (
   const base64 = Buffer.from(buffer).toString("base64");
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: process.env.GEMINI_CHAT_MODEL || "gemini-3.1-flash-lite",
     contents: [
       {
         role: "user",

@@ -2,9 +2,10 @@ import { Request, Response } from "express";
 import axios from "axios";
 
 const ELEVENLABS_API_KEY_1 = process.env.ELEVENLABS_API_KEY;
-const AGENT_ID = "agent_6801kp65pr7de35r97jbnfk2zh6c";
+const AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 
 export const getSignedUrl = async (req: Request, res: Response) => {
+  if (!ELEVENLABS_API_KEY_1 || !AGENT_ID) return res.status(503).json({ error: "Live voice is not configured" });
   try {
     const response = await axios.get(
       "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
@@ -20,7 +21,7 @@ export const getSignedUrl = async (req: Request, res: Response) => {
 
     
     // DUMP THE RAW DATA SO WE CAN SEE IT!
-    console.log("Raw ElevenLabs API Response:", response.data);
+
 
     // Return the ENTIRE object to the frontend so it doesn't get stripped to {}
     return res.json(response.data);

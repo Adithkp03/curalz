@@ -137,8 +137,8 @@ export const searchSimilarMemories = async (
             return [];
         }
 
-        const searchResult = await qdrantClient.search(COLLECTION_NAME, {
-            vector: queryVector,
+        const searchResult = await qdrantClient.query(COLLECTION_NAME, {
+            query: queryVector,
             limit,
             filter: {
                 must: [
@@ -151,7 +151,7 @@ export const searchSimilarMemories = async (
             with_payload: true
         });
 
-        return searchResult.map((result) => ({
+        return searchResult.points.map((result) => ({
             id: result.id as string,
             score: result.score,
             payload: result.payload

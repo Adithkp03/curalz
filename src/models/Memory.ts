@@ -40,7 +40,7 @@ export interface IMemory extends Document {
 const MemorySchema: Schema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    qdrantId: { type: String, required: true },
+    qdrantId: { type: String, required: true, unique: true },
     type: { 
       type: String, 
       enum: ["photo", "story", "place", "chat"], 

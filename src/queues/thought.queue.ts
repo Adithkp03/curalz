@@ -11,7 +11,7 @@ export interface ThoughtJobData {
 
 export const THOUGHT_QUEUE_NAME = "thought-processing";
 
-export const thoughtQueue = new Queue<ThoughtJobData>(THOUGHT_QUEUE_NAME, {
+export const thoughtQueue = ["inline", "workflow"].includes(process.env.THOUGHT_PROCESSING_MODE || "") ? undefined : new Queue<ThoughtJobData>(THOUGHT_QUEUE_NAME, {
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 3,
