@@ -122,7 +122,7 @@ export async function setCaregiverSharing(caregiver: any, on: boolean) {
 }
 
 /** Called whenever a grant/link ends: drop queued work for that pair, and the stored position if nobody can see it any more. */
-export async function onAccessEnded(patientId: unknown, caregiverId: unknown) {
+export async function onAccessEnded(patientId: any, caregiverId: any) {
     await Outbox.updateMany({ patientId, status: 'queued', $or: [{ userId: caregiverId }, { caregiverId }] } as any, { $set: { status: 'cancelled', reason: 'access ended' } });
     if (!(await authorizedCaregivers(patientId)).length) {
         await PatientLocationState.deleteMany({ patientId });

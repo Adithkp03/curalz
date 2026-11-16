@@ -1,3 +1,4 @@
+vi.mock('../src/services/location.service', () => ({ onAccessEnded: async () => undefined })); // fake-based suites don't load real models
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Minimal stateful fakes so access behaviour and races are tested, not just call shapes.

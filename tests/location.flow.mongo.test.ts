@@ -105,7 +105,7 @@ describe('boundary + sharing flow (synthetic, real MongoDB)', () => {
     await cf(await fresh(Sec), fix(10, T0 + 40_000), T0 + 40_000);   // no grant: nothing
     expect(sent).toHaveLength(1);
   });
-  it('concurrent fixes keep one consistent state and at most one alert', async () => {
+  it('concurrent fixes produce exactly one alert', async () => {
     await grantLocation(await fresh(P), String(Pri._id)); await setZone(await fresh(Pri), String(P._id), HOME);
     const pat = await fresh(P);
     await pf(pat, fix(900, T0), T0);
