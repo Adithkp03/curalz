@@ -50,10 +50,11 @@ export const makeFcmSender = (): Sender | null => {
         const tokens = (await DeviceToken.find({ userId: n.userId } as any)).map((t: any) => t.token);
         if (!tokens.length) throw new Error('no registered device');
         const m = await init();
+        const clear = n.kind === 'battery_clear';   // data-only: lets the app remove a shown battery alert, shows nothing itself
         const res = await m.sendEachForMulticast({
-            tokens, notification: { title: n.title, body: n.body },
+            tokens, ...(clear ? {} : { notification: { title: n.title, body: n.body } }),
             data: { kind: n.kind, patientId: n.data?.patientId ?? '' },
-            android: { priority: 'high' },
+            android: { priority: 'high', ...(n.kind === 'battery_low' ? { notification: { tag: `battery-low-${n.data?.patientId ?? ''}` } } : {}) },
         });
         const bad = res.responses.map((r: any, i: number) => (!r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code ?? '') ? tokens[i] : null)).filter(Boolean);
         if (bad.length) await DeviceToken.deleteMany({ token: { $in: bad } } as any);

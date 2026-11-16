@@ -62,7 +62,7 @@ export const CaregiverSharing = mongoose.model('CaregiverSharing', CaregiverShar
  */
 const OutboxSchema = new Schema({
     userId: { type: Schema.Types.ObjectId, required: true },
-    kind: { type: String, enum: ['patient_left_zone', 'caregiver_nearby', 'care_link_request'], required: true },
+    kind: { type: String, enum: ['patient_left_zone', 'caregiver_nearby', 'care_link_request', 'battery_low', 'battery_clear'], required: true },
     patientId: { type: Schema.Types.ObjectId, required: true },
     caregiverId: { type: Schema.Types.ObjectId },
     title: String, body: String,
@@ -75,3 +75,20 @@ const OutboxSchema = new Schema({
 OutboxSchema.index({ status: 1, createdAt: 1 });
 OutboxSchema.index({ createdAt: 1 }, { expireAfterSeconds: LOCATION_RETENTION_SECONDS, name: 'ttl_outbox' });
 export const Outbox = mongoose.model('Outbox', OutboxSchema);
+
+/** The patient's OWN explicit switch for battery alerts. Separate from the location grant; off by default. */
+const BatteryOptInSchema = new Schema({
+    patientId: { type: Schema.Types.ObjectId, required: true, unique: true },
+    active: { type: Boolean, default: true },
+}, { timestamps: true });
+export const BatteryOptIn = mongoose.model('BatteryOptIn', BatteryOptInSchema);
+
+/** Latest battery reading + whether a low-battery episode is open. Expires like the position state. */
+const PatientBatterySchema = new Schema({
+    patientId: { type: Schema.Types.ObjectId, required: true, unique: true },
+    pct: Number, charging: Boolean, recordedAt: Number,
+    lowActive: { type: Boolean, default: false },
+    alertedSent: { type: Boolean, default: false },
+}, { timestamps: true });
+PatientBatterySchema.index({ updatedAt: 1 }, { expireAfterSeconds: LOCATION_RETENTION_SECONDS, name: 'ttl_patient_battery' });
+export const PatientBattery = mongoose.model('PatientBattery', PatientBatterySchema);

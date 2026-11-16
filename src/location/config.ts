@@ -15,6 +15,8 @@ export interface LocationConfig {
     nearbyResetDistanceM: number; // caregiver must go beyond this to re-arm nearby
     minZoneRadiusM: number;
     maxZoneRadiusM: number;
+    batteryLowBelowPct: number;   // alert only when strictly below this and not charging
+    batteryMaxAgeMs: number;      // an older reading is unknown, never shown or alerted
 }
 
 export const PROPOSED_LOCATION_CONFIG: LocationConfig = {
@@ -29,6 +31,8 @@ export const PROPOSED_LOCATION_CONFIG: LocationConfig = {
     nearbyResetDistanceM: 500,
     minZoneRadiusM: 100,
     maxZoneRadiusM: 5000,
+    batteryLowBelowPct: 25,
+    batteryMaxAgeMs: 10 * 60_000,
 };
 
 export const locationFeatureEnabled = (env: Record<string, string | undefined> = process.env) =>

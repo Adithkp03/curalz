@@ -1,13 +1,14 @@
 import mongoose from 'mongoose';
 import CareLink from '../models/CareLink';
 import LocationGrant from '../models/LocationGrant';
-import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken, CaregiverSharing, Outbox, LOCATION_RETENTION_SECONDS } from '../models/LocationModels';
+import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken, CaregiverSharing, Outbox, BatteryOptIn, LOCATION_RETENTION_SECONDS } from '../models/LocationModels';
 import { LinkError } from './careLink.service';
 import { hasLocationAuthority } from './locationAuthority.service';
 import { PROPOSED_LOCATION_CONFIG, LocationConfig } from '../location/config';
+import { batteryDispatchCheck, batteryOnAccessEnded } from './battery.service';
 import { Fix, isValidFix, validateZone, stepBoundary, stepNearby } from '../location/evaluate';
 
-export interface Notification { userId: string; kind: 'patient_left_zone' | 'caregiver_nearby' | 'care_link_request'; title: string; body: string; data?: Record<string, string> }
+export interface Notification { userId: string; kind: 'patient_left_zone' | 'caregiver_nearby' | 'care_link_request' | 'battery_low' | 'battery_clear'; title: string; body: string; data?: Record<string, string> }
 /** Push sender is injected. Returns 'sent' only if the provider accepted the message; 'logged' if it only logged. */
 export type Sender = (n: Notification) => Promise<'sent' | 'logged'>;
 
@@ -125,6 +126,7 @@ export async function setCaregiverSharing(caregiver: any, on: boolean) {
 
 /** Called whenever a grant/link ends: drop queued work for that pair, and the stored position if nobody can see it any more. */
 export async function onAccessEnded(patientId: any, caregiverId: any) {
+    await batteryOnAccessEnded(patientId, caregiverId);
     await Outbox.updateMany({ patientId, status: 'queued', $or: [{ userId: caregiverId }, { caregiverId }] } as any, { $set: { status: 'cancelled', reason: 'access ended' } });
     if (!(await authorizedCaregivers(patientId)).length) {
         await PatientLocationState.deleteMany({ patientId });
@@ -166,11 +168,14 @@ export async function dispatchPending(send: Sender, now = Date.now(), cfg: Locat
         if (!claimed) continue;
         const cancel = async (reason: string) => { await Outbox.updateOne({ _id: it._id }, { $set: { status: 'cancelled', reason } }); out.cancelled++; };
         if (now - new Date(it.createdAt).getTime() > LOCATION_RETENTION_SECONDS * 1000) { await cancel('past retention'); continue; }  // logical expiry, independent of the TTL sweep
-        const maxAge = it.kind === 'caregiver_nearby' ? cfg.nearbyMaxFixAgeMs : cfg.maxFixAgeMs;
-        if (it.kind !== 'care_link_request' && now - it.fixRecordedAt > maxAge) { await cancel('fix too old at send time'); continue; }
+        const maxAge = it.kind === 'caregiver_nearby' ? cfg.nearbyMaxFixAgeMs : it.kind === 'battery_low' ? cfg.batteryMaxAgeMs : cfg.maxFixAgeMs;
+        if (it.kind !== 'care_link_request' && it.kind !== 'battery_clear' && now - it.fixRecordedAt > maxAge) { await cancel('fix too old at send time'); continue; }
         if (it.kind === 'care_link_request') {
             // Only tell the patient about a request that is still waiting for them.
             if (!(await CareLink.findOne({ patientId: it.patientId, caregiverId: it.caregiverId, status: 'pending' } as any))) { await cancel('request no longer pending'); continue; }
+        } else if (it.kind === 'battery_low' || it.kind === 'battery_clear') {
+            const why = await batteryDispatchCheck(it, now, cfg);
+            if (why) { await cancel(why); continue; }
         } else if (it.kind === 'patient_left_zone') {
             const z = await validZone(it.patientId);
             if (!z || z.rev !== it.zoneRev) { await cancel('zone changed or gone'); continue; }
@@ -229,7 +234,8 @@ export async function sharingStatus(user: any) {
             const c: any = await User.findById(l.caregiverId);
             out.push({ caregiverId: String(l.caregiverId), caregiverName: c?.name ?? 'Caregiver', role: l.role, sharing: on.has(String(l.caregiverId)) });
         }
-        return { role: 'patient', caregivers: out };
+        const bo: any = await BatteryOptIn.findOne({ patientId: user._id });
+        return { role: 'patient', caregivers: out, batteryOn: !!bo?.active };
     }
     const mine: any = await CaregiverSharing.findOne({ caregiverId: user._id });
     const links: any[] = await CareLink.find({ caregiverId: user._id, status: 'active' } as any);
@@ -239,7 +245,8 @@ export async function sharingStatus(user: any) {
     for (const l of links) {
         const p: any = await User.findById(l.patientId);
         const sharing = on.has(String(l.patientId));
-        out.push({ patientId: String(l.patientId), patientName: p?.name ?? 'Patient', role: l.role, patientSharing: sharing, canSetBoundary: l.role === 'primary' && sharing });
+        const bo: any = l.role === 'primary' ? await BatteryOptIn.findOne({ patientId: l.patientId }) : null;
+        out.push({ patientId: String(l.patientId), patientName: p?.name ?? 'Patient', role: l.role, patientSharing: sharing, canSetBoundary: l.role === 'primary' && sharing, batteryShared: !!bo?.active });
     }
     return { role: 'caregiver', mySharing: !!mine?.active, patients: out };
 }

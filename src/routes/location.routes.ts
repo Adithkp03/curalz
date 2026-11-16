@@ -3,6 +3,7 @@ import { protect } from '../middleware/auth.middleware';
 import { LinkError } from '../services/careLink.service';
 import { grantLocation, revokeLocation } from '../services/locationAuthority.service';
 import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, unregisterDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
+import { setBatteryOptIn, ingestBattery, batteryForCaregiver } from '../services/battery.service';
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
 import { fcmDiagnostic } from '../location/fcmSender';
@@ -46,6 +47,14 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
         await dispatchPending(send).catch(() => undefined); // inline dispatch (serverless has no background worker)
         return r;
     }));
+    router.post('/battery/on', run(req => setBatteryOptIn(req.user, true)));
+    router.post('/battery/off', run(async req => { const r = await setBatteryOptIn(req.user, false); await dispatchPending(send).catch(() => undefined); return r; }));
+    router.post('/battery', run(async req => {
+        const r = await ingestBattery(req.user, req.body);
+        await dispatchPending(send).catch(() => undefined);
+        return r;
+    }));
+    router.get('/battery/:patientId', run(req => batteryForCaregiver(req.user, req.params.patientId)));
     router.post('/caregiver-sharing/on', run(req => setCaregiverSharing(req.user, true)));
     router.post('/caregiver-sharing/off', run(req => setCaregiverSharing(req.user, false)));
     router.get('/live/:patientId', run(req => liveLocation(req.user, req.params.patientId)));
