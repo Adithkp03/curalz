@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import CareLink from '../models/CareLink';
 import LocationGrant from '../models/LocationGrant';
-import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken, CaregiverSharing, Outbox } from '../models/LocationModels';
+import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken, CaregiverSharing, Outbox, LOCATION_RETENTION_SECONDS } from '../models/LocationModels';
 import { LinkError } from './careLink.service';
 import { hasLocationAuthority } from './locationAuthority.service';
 import { PROPOSED_LOCATION_CONFIG, LocationConfig } from '../location/config';
@@ -163,6 +163,7 @@ export async function dispatchPending(send: Sender, now = Date.now(), cfg: Locat
         const claimed = await Outbox.findOneAndUpdate({ _id: it._id, status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'dispatching' } }); // claim: no double send
         if (!claimed) continue;
         const cancel = async (reason: string) => { await Outbox.updateOne({ _id: it._id }, { $set: { status: 'cancelled', reason } }); out.cancelled++; };
+        if (now - new Date(it.createdAt).getTime() > LOCATION_RETENTION_SECONDS * 1000) { await cancel('past retention'); continue; }  // logical expiry, independent of the TTL sweep
         const maxAge = it.kind === 'caregiver_nearby' ? cfg.nearbyMaxFixAgeMs : cfg.maxFixAgeMs;
         if (now - it.fixRecordedAt > maxAge) { await cancel('fix too old at send time'); continue; }
         if (it.kind === 'patient_left_zone') {
@@ -187,6 +188,7 @@ export async function liveLocation(caregiver: any, patientId: string, now = Date
     const st: any = await PatientLocationState.findOne({ patientId });
     if (!st?.lastFix?.recordedAt) return { status: 'unknown' as const };
     const ageMs = now - st.lastFix.recordedAt;
+    if (now - new Date((st as any).updatedAt).getTime() > LOCATION_RETENTION_SECONDS * 1000) return { status: 'unknown' as const };  // past retention: treated as deleted even before the TTL sweep
     if (ageMs > cfg.maxFixAgeMs || ageMs < -30_000) return { status: 'stale' as const, ageMs };
     const { lat, lon, accuracyM, recordedAt } = st.lastFix;
     return { status: 'live' as const, lat, lon, accuracyM, recordedAt, ageMs };

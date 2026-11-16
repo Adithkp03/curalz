@@ -224,3 +224,20 @@ describe('device tokens, account switch and retention', () => {
     }
   });
 });
+
+describe('logical retention (independent of the TTL sweep)', () => {
+  it('queued alerts past retention are cancelled at send time; stored position past retention reads as unknown', async () => {
+    await grantLocation(await fresh(P), String(Pri._id));
+    await setZone(await fresh(Pri), String(P._id), HOME);
+    const pat = await fresh(P);
+    await ingestPatientFix(pat, fix(0, T0), T0);
+    await ingestPatientFix(pat, fix(800, T0 + 10_000), T0 + 10_000);
+    await ingestPatientFix(pat, fix(820, T0 + 80_000), T0 + 80_000);   // queues, not dispatched
+    const real = Date.now();
+    const later = real + (LOCATION_RETENTION_SECONDS + 3600) * 1000;
+    expect(await liveLocation(await fresh(Pri), String(P._id), later)).toEqual({ status: 'unknown' });
+    const r = await dispatchPending(notify, later);
+    expect(r.sent).toBe(0); expect(sent).toHaveLength(0);
+    const row: any = await Outbox.findOne({}); expect(row.status).toBe('cancelled');
+  });
+});
