@@ -1,5 +1,6 @@
 import CareLink from '../models/CareLink';
 import User from '../models/User';
+import LocationGrant from '../models/LocationGrant';
 
 export class LinkError extends Error {
     constructor(public status: number, message: string) { super(message); }
@@ -99,5 +100,8 @@ export async function revoke(actor: any, linkId: unknown) {
         { $set: { status: 'revoked', revokedAt: new Date(), revokedBy: actor._id } }, { new: true });
     if (!link) throw new LinkError(404, 'No such link');
     await syncAccess(link);
+    // Ending a link also ends any location permission, so re-linking later starts from zero.
+    await LocationGrant.updateMany({ patientId: link.patientId, caregiverId: link.caregiverId, status: 'active' } as any,
+        { $set: { status: 'revoked', revokedAt: new Date() } });
     return { status: 'revoked' };
 }

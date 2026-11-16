@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Minimal stateful fakes so access behaviour and races are tested, not just call shapes.
 const db = vi.hoisted(() => {
-  const state: any = { users: [], links: [], n: 0 };
+  const state: any = { users: [], links: [], grants: [], n: 0 };
   const match = (doc: any, f: any): boolean => Object.entries(f).every(([k, v]: any) => {
     const x = doc[k];
     if (v && typeof v === 'object' && '$in' in v) return v.$in.map(String).includes(String(x));
@@ -40,9 +40,11 @@ const db = vi.hoisted(() => {
       Object.assign(l, u.$set); return l;
     },
   };
-  return { state, User, CareLink };
+  const LocationGrant = { updateMany: async (f: any, u: any) => { state.grants.filter((g: any) => String(g.patientId) === String(f.patientId) && String(g.caregiverId) === String(f.caregiverId) && g.status === 'active').forEach((g: any) => Object.assign(g, u.$set)); } };
+  return { state, User, CareLink, LocationGrant };
 });
 vi.mock('../src/models/User', () => ({ default: db.User }));
+vi.mock('../src/models/LocationGrant', () => ({ default: db.LocationGrant }));
 vi.mock('../src/models/CareLink', () => ({ default: db.CareLink }));
 import { requestLink, respond, revoke, listIncoming, listOutgoing } from '../src/services/careLink.service';
 
@@ -55,7 +57,7 @@ const has = (c: any, p: any) => c.linkedPatientIds.map(String).includes(String(p
 const only = async (c: any, p: any) => (await db.CareLink.find({ caregiverId: c._id, patientId: p._id })).find((l: any) => ['pending', 'active'].includes(l.status));
 
 beforeEach(() => {
-  db.state.links = []; db.state.n = 0;
+  db.state.links = []; db.state.grants = []; db.state.n = 0;
   for (const u of [P1, P2, C1, C2]) u.linkedPatientIds = [];
   db.state.users = [P1, P2, C1, C2];
 });
@@ -106,6 +108,16 @@ describe('what each state grants', () => {
     await respond(P1, l._id, true);
     await revoke(C1, l._id);
     expect(has(C1, P1)).toBe(false);
+  });
+});
+
+describe('location permission ends with the link', () => {
+  it('revoking a link revokes the location grant, so re-linking starts from zero', async () => {
+    await requestLink(C1, 'p1@x.com'); const l = await only(C1, P1);
+    await respond(P1, l._id, true);
+    db.state.grants.push({ patientId: P1._id, caregiverId: C1._id, status: 'active' });
+    await revoke(P1, l._id);
+    expect(db.state.grants[0].status).toBe('revoked');
   });
 });
 
