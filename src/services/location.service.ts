@@ -1,15 +1,15 @@
 import mongoose from 'mongoose';
 import CareLink from '../models/CareLink';
 import LocationGrant from '../models/LocationGrant';
-import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken } from '../models/LocationModels';
+import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken, CaregiverSharing, Outbox } from '../models/LocationModels';
 import { LinkError } from './careLink.service';
 import { hasLocationAuthority } from './locationAuthority.service';
 import { PROPOSED_LOCATION_CONFIG, LocationConfig } from '../location/config';
 import { Fix, isValidFix, validateZone, stepBoundary, stepNearby } from '../location/evaluate';
 
 export interface Notification { userId: string; kind: 'patient_left_zone' | 'caregiver_nearby'; title: string; body: string; data?: Record<string, string> }
-/** Delivery is injected. Real FCM sender is separate and off unless configured; tests use a recorder. */
-export type Notifier = (n: Notification) => Promise<void>;
+/** Push sender is injected. Returns 'sent' only if the provider accepted the message; 'logged' if it only logged. */
+export type Sender = (n: Notification) => Promise<'sent' | 'logged'>;
 
 const oid = (v: unknown) => {
     if (typeof v !== 'string' || !mongoose.isValidObjectId(v)) throw new LinkError(400, 'Invalid id');
@@ -29,7 +29,9 @@ export async function setZone(actor: any, patientId: string, zone: any, cfg: Loc
     if (!primary || !(await hasLocationAuthority(actor._id, patientId))) throw new LinkError(403, 'Only the primary caregiver with patient-approved location sharing can set the boundary');
     const z = { lat: Number(zone?.lat), lon: Number(zone?.lon), radiusM: Number(zone?.radiusM) };
     if (!validateZone(z, cfg)) throw new LinkError(400, 'Invalid boundary');
-    await SafeZone.findOneAndUpdate({ patientId }, { $set: { ...z, setBy: actor._id } }, { upsert: true, new: true });
+    await SafeZone.findOneAndUpdate({ patientId }, { $set: { ...z, setBy: actor._id }, $inc: { rev: 1 } }, { upsert: true, new: true });
+    // A zone change invalidates any exit alert computed against the old zone.
+    await Outbox.updateMany({ patientId, kind: 'patient_left_zone', status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'zone changed' } });
     return z;
 }
 
@@ -48,15 +50,26 @@ async function authorizedCaregivers(patientId: unknown): Promise<string[]> {
     return ok;
 }
 
+/** A zone only counts while the caregiver who set it is still the active primary with location authority. */
+async function validZone(patientId: any): Promise<any | null> {
+    const z: any = await SafeZone.findOne({ patientId });
+    if (!z) return null;
+    const primary = await CareLink.findOne({ patientId, caregiverId: z.setBy, status: 'active', role: 'primary' } as any);
+    return primary && (await hasLocationAuthority(z.setBy, patientId)) ? z : null;
+}
+
+const enqueue = (n: Notification & { patientId: any; caregiverId?: any; zoneRev?: number; fixRecordedAt?: number }) =>
+    Outbox.create({ ...n, status: 'queued' });
+
 /** Patient device reports a fix. Sharing is on only while at least one grant is active (patient opt-in, until turned off). */
-export async function ingestPatientFix(patient: any, raw: any, notify: Notifier, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
+export async function ingestPatientFix(patient: any, raw: any, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
     if (patient.role !== 'patient') throw new LinkError(403, 'Only the patient device reports patient location');
     const fix = cleanFix(raw);
     const caregivers = await authorizedCaregivers(patient._id);
     if (!caregivers.length) throw new LinkError(403, 'Location sharing is off');
-    const zone: any = await SafeZone.findOne({ patientId: patient._id });
-    let alert = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const zone = await validZone(patient._id);
+    let alert = false, stored = false;
+    for (let attempt = 0; attempt < 12 && !stored; attempt++) {
         const st: any = (await PatientLocationState.findOneAndUpdate({ patientId: patient._id }, { $setOnInsert: { patientId: patient._id } }, { upsert: true, new: true }))!;
         // Ignore out-of-order fixes older than the one we hold.
         if (st.lastFix?.recordedAt && fix.recordedAt < st.lastFix.recordedAt) return { stored: false, alert: false };
@@ -65,42 +78,65 @@ export async function ingestPatientFix(patient: any, raw: any, notify: Notifier,
         if (zone) { const r = stepBoundary(boundary, zone, fix, now, cfg); boundary = r.state as any; alert = r.alert; }
         const won = await PatientLocationState.findOneAndUpdate({ patientId: patient._id, rev: st.rev } as any,
             { $set: { lastFix: fix, boundary, rev: st.rev + 1 } }, { new: true });
-        if (won) break;
-        if (attempt === 4) throw new LinkError(409, 'Busy, retry');
+        stored = !!won;
     }
+    if (!stored) throw new LinkError(409, 'Busy, retry');
     if (alert) {
         // Primary and secondary caregivers who hold location authority both get the alert with the live position.
-        await Promise.all(caregivers.map(c => notify({
-            userId: c, kind: 'patient_left_zone', title: `${patient.name} is outside the safe area`,
-            body: 'Open the app to see their live location.',
+        await Promise.all(caregivers.map(c => enqueue({
+            userId: c, patientId: patient._id, kind: 'patient_left_zone', title: `${patient.name} is outside the safe area`,
+            body: 'Open the app to see their live location.', zoneRev: zone.rev, fixRecordedAt: fix.recordedAt,
             data: { patientId: String(patient._id), lat: String(fix.lat), lon: String(fix.lon), accuracyM: String(fix.accuracyM), recordedAt: String(fix.recordedAt) },
-        })));
+        } as any)));
     }
-    await Promise.all(caregivers.map(c => nearbyCheck(patient, c, notify, now, cfg)));
+    await Promise.all(caregivers.map(c => nearbyCheck(patient, c, now, cfg)));
     return { stored: true, alert };
 }
 
-export async function ingestCaregiverFix(caregiver: any, raw: any, notify: Notifier, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
+/** Caregiver reports a position for nearby alerts. Requires the caregiver's OWN opt-in. */
+export async function ingestCaregiverFix(caregiver: any, raw: any, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
     if (caregiver.role !== 'caregiver') throw new LinkError(403, 'Only a caregiver reports caregiver location');
+    if (!(await CaregiverSharing.findOne({ caregiverId: caregiver._id, active: true }))) throw new LinkError(403, 'Your location sharing is off');
     const fix = cleanFix(raw);
     const cur: any = await CaregiverFix.findOne({ caregiverId: caregiver._id });
     if (cur?.fix?.recordedAt && fix.recordedAt < cur.fix.recordedAt) return { stored: false };
     await CaregiverFix.findOneAndUpdate({ caregiverId: caregiver._id }, { $set: { fix } }, { upsert: true });
     const grants: any[] = await LocationGrant.find({ caregiverId: caregiver._id, status: 'active' } as any);
+    const User = (await import('../models/User')).default;
     for (const g of grants) {
         if (!(await hasLocationAuthority(caregiver._id, g.patientId))) continue;
-        const User = (await import('../models/User')).default;
         const patient: any = await User.findById(g.patientId);
-        if (patient) await nearbyCheck(patient, String(caregiver._id), notify, now, cfg);
+        if (patient) await nearbyCheck(patient, String(caregiver._id), now, cfg);
     }
     return { stored: true };
 }
 
-/** The patient is told a linked, sharing caregiver is nearby (patient-facing, one notice per visit). */
-async function nearbyCheck(patient: any, caregiverId: string, notify: Notifier, now: number, cfg: LocationConfig) {
+export async function setCaregiverSharing(caregiver: any, on: boolean) {
+    if (caregiver.role !== 'caregiver') throw new LinkError(403, 'Only a caregiver');
+    await CaregiverSharing.findOneAndUpdate({ caregiverId: caregiver._id }, { $set: { active: on } }, { upsert: true });
+    if (!on) {
+        await CaregiverFix.deleteMany({ caregiverId: caregiver._id });
+        await Outbox.updateMany({ caregiverId: caregiver._id, kind: 'caregiver_nearby', status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'caregiver opted out' } });
+    }
+    return { sharing: on };
+}
+
+/** Called whenever a grant/link ends: drop queued work for that pair, and the stored position if nobody can see it any more. */
+export async function onAccessEnded(patientId: unknown, caregiverId: unknown) {
+    await Outbox.updateMany({ patientId, status: 'queued', $or: [{ userId: caregiverId }, { caregiverId }] } as any, { $set: { status: 'cancelled', reason: 'access ended' } });
+    if (!(await authorizedCaregivers(patientId)).length) {
+        await PatientLocationState.deleteMany({ patientId });
+        await NearbyStateModel.deleteMany({ patientId });
+        await Outbox.updateMany({ patientId, status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'sharing off' } });
+    }
+}
+
+/** The patient is told a linked caregiver is nearby (needs patient grant AND the caregiver's own opt-in). One notice per visit. */
+async function nearbyCheck(patient: any, caregiverId: string, now: number, cfg: LocationConfig) {
+    if (!(await CaregiverSharing.findOne({ caregiverId, active: true }))) return;
     const [ps, cf]: any[] = await Promise.all([PatientLocationState.findOne({ patientId: patient._id }), CaregiverFix.findOne({ caregiverId })]);
     if (!ps?.lastFix || !cf?.fix) return;
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 12; attempt++) {
         const ns: any = await NearbyStateModel.findOneAndUpdate({ patientId: patient._id, caregiverId }, { $setOnInsert: { patientId: patient._id, caregiverId } }, { upsert: true, new: true });
         const r = stepNearby({ notifiedAt: ns.notifiedAt ?? undefined, rearmed: ns.rearmed }, ps.lastFix, cf.fix, now, cfg);
         const won = await NearbyStateModel.findOneAndUpdate({ _id: ns._id, rev: ns.rev } as any, { $set: { notifiedAt: r.state.notifiedAt, rearmed: r.state.rearmed, rev: ns.rev + 1 } });
@@ -108,19 +144,52 @@ async function nearbyCheck(patient: any, caregiverId: string, notify: Notifier, 
         if (r.notify) {
             const User = (await import('../models/User')).default;
             const c: any = await User.findById(caregiverId);
-            await notify({ userId: String(patient._id), kind: 'caregiver_nearby', title: `${c?.name ?? 'Your caregiver'} is nearby`, body: 'Someone who looks after you is close by.', data: { caregiverId } });
+            await enqueue({ userId: String(patient._id), patientId: patient._id, caregiverId, kind: 'caregiver_nearby',
+                title: `${c?.name ?? 'Your caregiver'} is nearby`, body: 'Someone who looks after you is close by.', data: { caregiverId },
+                fixRecordedAt: Math.min(ps.lastFix.recordedAt, cf.fix.recordedAt) } as any);
         }
         return;
     }
 }
 
-/** Live position for an authorized caregiver (alert deep link target). Stale fixes are returned with their age so the UI can say so. */
-export async function liveLocation(caregiver: any, patientId: string, now = Date.now()) {
+/**
+ * Send queued notifications. Re-checks everything at send time, so opt-out, link/grant revoke, a zone change or an old
+ * fix cancels the item instead of disclosing a stale position. Returns counts by final state.
+ */
+export async function dispatchPending(send: Sender, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
+    const out = { sent: 0, logged: 0, cancelled: 0, failed: 0 };
+    const items: any[] = await Outbox.find({ status: 'queued' }).sort({ createdAt: 1 }).limit(200);
+    for (const it of items) {
+        const claimed = await Outbox.findOneAndUpdate({ _id: it._id, status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'dispatching' } }); // claim: no double send
+        if (!claimed) continue;
+        const cancel = async (reason: string) => { await Outbox.updateOne({ _id: it._id }, { $set: { status: 'cancelled', reason } }); out.cancelled++; };
+        const maxAge = it.kind === 'caregiver_nearby' ? cfg.nearbyMaxFixAgeMs : cfg.maxFixAgeMs;
+        if (now - it.fixRecordedAt > maxAge) { await cancel('fix too old at send time'); continue; }
+        if (it.kind === 'patient_left_zone') {
+            const z = await validZone(it.patientId);
+            if (!z || z.rev !== it.zoneRev) { await cancel('zone changed or gone'); continue; }
+            if (!(await hasLocationAuthority(it.userId, it.patientId))) { await cancel('access ended'); continue; }
+        } else {
+            if (!(await hasLocationAuthority(it.caregiverId, it.patientId)) || !(await CaregiverSharing.findOne({ caregiverId: it.caregiverId, active: true }))) { await cancel('opt-in ended'); continue; }
+        }
+        try {
+            const state = await send({ userId: String(it.userId), kind: it.kind, title: it.title, body: it.body, data: Object.fromEntries(it.data ?? []) });
+            await Outbox.updateOne({ _id: it._id }, { $set: { status: state, reason: undefined } }); out[state]++;
+        } catch { await Outbox.updateOne({ _id: it._id }, { $set: { status: 'failed', reason: 'sender error' } }); out.failed++; }
+    }
+    return out;
+}
+
+/** Live position for an authorized caregiver. A stale, future-dated or missing fix returns no coordinates. */
+export async function liveLocation(caregiver: any, patientId: string, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
     oid(patientId);
     if (caregiver.role !== 'caregiver' || !(await hasLocationAuthority(caregiver._id, patientId))) throw new LinkError(403, 'Not allowed');
     const st: any = await PatientLocationState.findOne({ patientId });
-    if (!st?.lastFix) return null;
-    return { ...st.lastFix.toObject?.() ?? st.lastFix, ageMs: now - st.lastFix.recordedAt };
+    if (!st?.lastFix?.recordedAt) return { status: 'unknown' as const };
+    const ageMs = now - st.lastFix.recordedAt;
+    if (ageMs > cfg.maxFixAgeMs || ageMs < -30_000) return { status: 'stale' as const, ageMs };
+    const { lat, lon, accuracyM, recordedAt } = st.lastFix;
+    return { status: 'live' as const, lat, lon, accuracyM, recordedAt, ageMs };
 }
 
 export async function registerDeviceToken(user: any, token: unknown, platform = 'android') {

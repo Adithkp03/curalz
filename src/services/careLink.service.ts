@@ -103,5 +103,7 @@ export async function revoke(actor: any, linkId: unknown) {
     // Ending a link also ends any location permission, so re-linking later starts from zero.
     await LocationGrant.updateMany({ patientId: link.patientId, caregiverId: link.caregiverId, status: 'active' } as any,
         { $set: { status: 'revoked', revokedAt: new Date() } });
+    const { onAccessEnded } = await import('./location.service');
+    await onAccessEnded(link.patientId, link.caregiverId);
     return { status: 'revoked' };
 }

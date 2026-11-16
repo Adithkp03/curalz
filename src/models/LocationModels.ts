@@ -5,6 +5,7 @@ const SafeZoneSchema = new Schema({
     patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     setBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     lat: { type: Number, required: true }, lon: { type: Number, required: true }, radiusM: { type: Number, required: true },
+    rev: { type: Number, default: 0 },
 }, { timestamps: true });
 export const SafeZone = mongoose.model('SafeZone', SafeZoneSchema);
 
@@ -41,3 +42,30 @@ const DeviceTokenSchema = new Schema({
 }, { timestamps: true });
 DeviceTokenSchema.index({ userId: 1 });
 export const DeviceToken = mongoose.model('DeviceToken', DeviceTokenSchema);
+
+/** A caregiver's own explicit opt-in to share their position for nearby alerts. Separate from the patient's grant. */
+const CaregiverSharingSchema = new Schema({
+    caregiverId: { type: Schema.Types.ObjectId, required: true, unique: true },
+    active: { type: Boolean, default: true },
+}, { timestamps: true });
+export const CaregiverSharing = mongoose.model('CaregiverSharing', CaregiverSharingSchema);
+
+/**
+ * Notification outbox. States: queued -> (cancelled | logged | sent | failed).
+ * 'logged' = only written to the server log (no push configured). 'sent' = the push provider accepted it.
+ * 'delivered' is deliberately not a state: only a device acknowledgement could prove it, and none exists yet.
+ */
+const OutboxSchema = new Schema({
+    userId: { type: Schema.Types.ObjectId, required: true },
+    kind: { type: String, enum: ['patient_left_zone', 'caregiver_nearby'], required: true },
+    patientId: { type: Schema.Types.ObjectId, required: true },
+    caregiverId: { type: Schema.Types.ObjectId },
+    title: String, body: String,
+    data: { type: Map, of: String },
+    zoneRev: Number,
+    fixRecordedAt: Number,
+    status: { type: String, enum: ['queued', 'cancelled', 'logged', 'sent', 'failed'], default: 'queued' },
+    reason: String,
+}, { timestamps: true });
+OutboxSchema.index({ status: 1, createdAt: 1 });
+export const Outbox = mongoose.model('Outbox', OutboxSchema);

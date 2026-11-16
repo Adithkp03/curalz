@@ -19,6 +19,8 @@ export async function revokeLocation(actor: any, patientId: string, caregiverId:
         (actor.role === 'caregiver' && String(actor._id) === String(caregiverId));
     if (!ok) throw new LinkError(403, 'Not allowed');
     await LocationGrant.findOneAndUpdate({ patientId, caregiverId, status: 'active' } as any, { $set: { status: 'revoked', revokedAt: new Date() } });
+    const { onAccessEnded } = await import('./location.service');
+    await onAccessEnded(patientId, caregiverId);
     return { status: 'revoked' };
 }
 
