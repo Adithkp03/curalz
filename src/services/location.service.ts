@@ -27,6 +27,8 @@ export async function setZone(actor: any, patientId: string, zone: any, cfg: Loc
     oid(patientId);
     const primary = await CareLink.findOne({ patientId, caregiverId: actor._id, status: 'active', role: 'primary' } as any);
     if (!primary || !(await hasLocationAuthority(actor._id, patientId))) throw new LinkError(403, 'Only the primary caregiver with patient-approved location sharing can set the boundary');
+    const blank = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+    if (blank(zone?.lat) || blank(zone?.lon) || blank(zone?.radiusM)) throw new LinkError(400, 'Invalid boundary');
     const z = { lat: Number(zone?.lat), lon: Number(zone?.lon), radiusM: Number(zone?.radiusM) };
     if (!validateZone(z, cfg)) throw new LinkError(400, 'Invalid boundary');
     await SafeZone.findOneAndUpdate({ patientId }, { $set: { ...z, setBy: actor._id }, $inc: { rev: 1 } }, { upsert: true, new: true });
@@ -40,7 +42,7 @@ export async function getZone(actor: any, patientId: string) {
     const allowed = String(actor._id) === String(patientId) || (actor.role === 'caregiver' && await hasLocationAuthority(actor._id, patientId));
     if (!allowed) throw new LinkError(403, 'Not allowed');
     const z: any = await SafeZone.findOne({ patientId });
-    return z ? { lat: z.lat, lon: z.lon, radiusM: z.radiusM } : null;
+    return z && !(z.lat === 0 && z.lon === 0) ? { lat: z.lat, lon: z.lon, radiusM: z.radiusM } : null;
 }
 
 async function authorizedCaregivers(patientId: unknown): Promise<string[]> {
@@ -53,7 +55,7 @@ async function authorizedCaregivers(patientId: unknown): Promise<string[]> {
 /** A zone only counts while the caregiver who set it is still the active primary with location authority. */
 async function validZone(patientId: any): Promise<any | null> {
     const z: any = await SafeZone.findOne({ patientId });
-    if (!z) return null;
+    if (!z || (z.lat === 0 && z.lon === 0)) return null;   // a 0,0 centre is a blank-form leftover, never a real boundary
     const primary = await CareLink.findOne({ patientId, caregiverId: z.setBy, status: 'active', role: 'primary' } as any);
     return primary && (await hasLocationAuthority(z.setBy, patientId)) ? z : null;
 }

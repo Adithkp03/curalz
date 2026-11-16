@@ -15,7 +15,7 @@ export function distanceM(a: { lat: number; lon: number }, b: { lat: number; lon
 }
 
 export function validateZone(z: any, cfg: LocationConfig = PROPOSED_LOCATION_CONFIG): z is Zone {
-    return z && isValidFix({ ...z, accuracyM: 0, recordedAt: 0 }) &&
+    return z && isValidFix({ ...z, accuracyM: 0, recordedAt: 0 }) && !(z.lat === 0 && z.lon === 0) /* blank form / no fix, never a real centre */ &&
         Number.isFinite(z.radiusM) && z.radiusM >= cfg.minZoneRadiusM && z.radiusM <= cfg.maxZoneRadiusM;
 }
 
