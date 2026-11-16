@@ -6,6 +6,7 @@ import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, r
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
 import { fcmDiagnostic } from '../location/fcmSender';
+import { Outbox } from '../models/LocationModels';
 
 /** Default sender only LOGS a kind (no coordinates, no push); its items end as 'logged', never 'sent'. */
 export const logOnlySender: Sender = async n => { console.log(`[location] ${n.kind} logged (no push sender configured)`); return 'logged'; };
@@ -20,6 +21,12 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
             res.status(500).json({ error: 'Request failed' });
         }
     };
+    // Test host only: the caller's OWN notification rows (kind, state, reason, time). No coordinates, no other users.
+    router.get('/diagnostics/outbox', run(async req => {
+        if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found');
+        const rows: any[] = await Outbox.find({ userId: req.user._id } as any).sort({ createdAt: -1 }).limit(20);
+        return rows.map(r => ({ kind: r.kind, status: r.status, reason: r.reason ?? null, createdAt: r.createdAt }));
+    }));
     router.get('/status', run(req => sharingStatus(req.user)));
     // Test host only (fail closed): server-side FCM credential/API check, dry run to a fake token, no device, no delivery.
     router.get('/diagnostics/fcm', run(async () => { if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found'); return fcmDiagnostic(); }));
