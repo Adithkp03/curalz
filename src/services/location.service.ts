@@ -197,3 +197,30 @@ export async function registerDeviceToken(user: any, token: unknown, platform = 
     await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform } }, { upsert: true });
     return { ok: true };
 }
+
+/** What the signed-in user can see about location sharing. Names only; no coordinates. */
+export async function sharingStatus(user: any) {
+    const User = (await import('../models/User')).default;
+    if (user.role === 'patient') {
+        const links: any[] = await CareLink.find({ patientId: user._id, status: 'active' } as any);
+        const grants: any[] = await LocationGrant.find({ patientId: user._id, status: 'active' } as any);
+        const on = new Set(grants.map(g => String(g.caregiverId)));
+        const out = [];
+        for (const l of links) {
+            const c: any = await User.findById(l.caregiverId);
+            out.push({ caregiverId: String(l.caregiverId), caregiverName: c?.name ?? 'Caregiver', role: l.role, sharing: on.has(String(l.caregiverId)) });
+        }
+        return { role: 'patient', caregivers: out };
+    }
+    const mine: any = await CaregiverSharing.findOne({ caregiverId: user._id });
+    const links: any[] = await CareLink.find({ caregiverId: user._id, status: 'active' } as any);
+    const grants: any[] = await LocationGrant.find({ caregiverId: user._id, status: 'active' } as any);
+    const on = new Set(grants.map(g => String(g.patientId)));
+    const out = [];
+    for (const l of links) {
+        const p: any = await User.findById(l.patientId);
+        const sharing = on.has(String(l.patientId));
+        out.push({ patientId: String(l.patientId), patientName: p?.name ?? 'Patient', role: l.role, patientSharing: sharing, canSetBoundary: l.role === 'primary' && sharing });
+    }
+    return { role: 'caregiver', mySharing: !!mine?.active, patients: out };
+}

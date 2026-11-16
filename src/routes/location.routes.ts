@@ -2,7 +2,7 @@ import express, { Response } from 'express';
 import { protect } from '../middleware/auth.middleware';
 import { LinkError } from '../services/careLink.service';
 import { grantLocation, revokeLocation } from '../services/locationAuthority.service';
-import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, setCaregiverSharing, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
+import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
 
@@ -19,8 +19,9 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
             res.status(500).json({ error: 'Request failed' });
         }
     };
+    router.get('/status', run(req => sharingStatus(req.user)));
     router.post('/grants', run(req => grantLocation(req.user, req.body?.caregiverId)));            // patient turns sharing on for a caregiver
-    router.post('/grants/revoke', run(req => revokeLocation(req.user, req.body?.patientId, req.body?.caregiverId)));
+    router.post('/grants/revoke', run(req => revokeLocation(req.user, req.user.role === 'patient' ? String(req.user._id) : req.body?.patientId, req.user.role === 'caregiver' ? String(req.user._id) : req.body?.caregiverId)));
     router.post('/sharing/off', run(async req => {                                                  // patient turns all sharing off
         if (req.user.role !== 'patient') throw new LinkError(403, 'Only the patient');
         const gs: any[] = await LocationGrant.find({ patientId: req.user._id, status: 'active' } as any);

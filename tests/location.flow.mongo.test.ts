@@ -9,7 +9,7 @@ import { requestLink, respond } from '../src/services/careLink.service';
 import { grantLocation, revokeLocation } from '../src/services/locationAuthority.service';
 import { CaregiverSharing, Outbox } from '../src/models/LocationModels';
 import { revoke } from '../src/services/careLink.service';
-import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, dispatchPending, Notification } from '../src/services/location.service';
+import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, Notification } from '../src/services/location.service';
 
 // SYNTHETIC coordinates only, real MongoDB. Disabled-by-default feature; this exercises the service layer, not push delivery.
 let mongod: MongoMemoryServer;
@@ -186,5 +186,15 @@ describe('boundary + sharing flow (synthetic, real MongoDB)', () => {
     const pat = await fresh(P);
     await pf(pat, fix(900, T0), T0); await pf(pat, fix(900, T0 + 70_000), T0 + 70_000);
     expect(sent).toHaveLength(0);
+  });
+
+  it('status shows who is sharing and who can set the boundary, names only', async () => {
+    await grantLocation(await fresh(P), String(Pri._id));
+    const ps: any = await sharingStatus(await fresh(P));
+    expect(ps.caregivers.map((c: any) => [c.caregiverName, c.sharing]).sort()).toEqual([['Pri', true], ['Sec', false]]);
+    const cs: any = await sharingStatus(await fresh(Pri)); const ss: any = await sharingStatus(await fresh(Sec));
+    expect(cs.patients[0]).toMatchObject({ canSetBoundary: true, patientSharing: true });
+    expect(ss.patients[0]).toMatchObject({ canSetBoundary: false, patientSharing: false });
+    expect(JSON.stringify(ps)).not.toMatch(/lat|lon/);
   });
 });
