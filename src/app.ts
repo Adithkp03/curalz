@@ -27,7 +27,30 @@ app.use(
 );
 app.use(express.json());
 
+/**
+ * LOCATION_TEST_MODE=true builds a minimal API for an isolated test host: only auth, care-links and location routes.
+ * Chat, events, media, caregiver data, Qdrant, Supabase, Gemini and ElevenLabs are NOT mounted (404), never dummy-working.
+ * Fails closed (503 on every /api call) unless JWT_SECRET, MONGO_URI and LOCATION_FEATURE_ENABLED=true are all set.
+ * Data lives in a fixed database name, never the database named in the URI, so a mistaken URI cannot read another database.
+ */
+export const LOCATION_TEST_DB = 'alzhefi_location_test';
+const testMode = process.env.LOCATION_TEST_MODE === 'true';
+if (testMode) {
+  app.get('/health', (_req, res) => res.json({ status: 'ok', mode: 'location-test' }));
+  app.use('/api', async (_req, res, next) => {
+    if (!process.env.JWT_SECRET || !process.env.MONGO_URI || process.env.LOCATION_FEATURE_ENABLED !== 'true')
+      return res.status(503).json({ error: 'Test host not configured' });
+    try { await connectDB({ dbName: LOCATION_TEST_DB }); next(); } catch { res.status(503).json({ error: 'Database unavailable' }); }
+  });
+  app.use('/api/auth', authRoutes);
+  app.use('/api/care-links', careLinkRoutes);
+  app.use('/api/location', makeLocationRouter(makeFcmSender() ?? undefined));
+  app.get('/', (_req, res) => res.send('AlzheFi location test host'));
+  app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+}
+
 // Do not expose the queue dashboard with patient data.
+if (!testMode) {
 let vectorReady: Promise<void> | undefined;
 app.get('/health', (_req, res) => res.json({ status: 'ok', mode: process.env.THOUGHT_PROCESSING_MODE || 'queue' }));
 app.use('/api', async (_req, _res, next) => {
@@ -54,5 +77,6 @@ app.use("/api/elevenlabs", elevenlabsRoutes);
 app.get("/", (req, res) => {
   res.send("Medical Memory Assistant API is running");
 });
+}
 
 export default app;

@@ -1,5 +1,8 @@
 import mongoose, { Schema } from 'mongoose';
 
+/** PROPOSED minimal retention (not approved): stored positions and queued/sent alerts expire this long after their last update. */
+export const LOCATION_RETENTION_SECONDS = Number(process.env.LOCATION_RETENTION_HOURS ?? 24) * 3600;
+
 /** Safe zone for one patient. Only the active primary caregiver (with location authority) may write it. */
 const SafeZoneSchema = new Schema({
     patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
@@ -18,12 +21,14 @@ const PatientLocationStateSchema = new Schema({
     boundary: { armed: { type: Boolean, default: true }, outsideSince: Number, outsideCount: { type: Number, default: 0 } },
     rev: { type: Number, default: 0 },
 }, { timestamps: true });
+PatientLocationStateSchema.index({ updatedAt: 1 }, { expireAfterSeconds: LOCATION_RETENTION_SECONDS, name: 'ttl_patient_position' });
 export const PatientLocationState = mongoose.model('PatientLocationState', PatientLocationStateSchema);
 
 const CaregiverFixSchema = new Schema({
     caregiverId: { type: Schema.Types.ObjectId, required: true, unique: true },
     fix: fixShape,
 }, { timestamps: true });
+CaregiverFixSchema.index({ updatedAt: 1 }, { expireAfterSeconds: LOCATION_RETENTION_SECONDS, name: 'ttl_caregiver_position' });
 export const CaregiverFix = mongoose.model('CaregiverFix', CaregiverFixSchema);
 
 const NearbyStateSchema = new Schema({
@@ -68,4 +73,5 @@ const OutboxSchema = new Schema({
     reason: String,
 }, { timestamps: true });
 OutboxSchema.index({ status: 1, createdAt: 1 });
+OutboxSchema.index({ createdAt: 1 }, { expireAfterSeconds: LOCATION_RETENTION_SECONDS, name: 'ttl_outbox' });
 export const Outbox = mongoose.model('Outbox', OutboxSchema);
