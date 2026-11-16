@@ -15,8 +15,8 @@ export interface ICareLink extends Document {
 }
 
 const CareLinkSchema = new Schema({
-    patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    caregiverId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    caregiverId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     role: { type: String, enum: ['primary', 'secondary'], default: 'secondary' },
     status: { type: String, enum: ['pending', 'active', 'declined', 'revoked'], default: 'pending' },
     legacy: { type: Boolean, default: false },
@@ -26,12 +26,14 @@ const CareLinkSchema = new Schema({
 }, { timestamps: true });
 
 // One open (pending/active) link per patient-caregiver pair, even under concurrent requests.
+CareLinkSchema.index({ patientId: 1 });
+CareLinkSchema.index({ caregiverId: 1 });
 CareLinkSchema.index({ patientId: 1, caregiverId: 1 }, {
-    unique: true, partialFilterExpression: { status: { $in: ['pending', 'active'] } },
+    name: 'one_open_link_per_pair', unique: true, partialFilterExpression: { status: { $in: ['pending', 'active'] } },
 });
 // At most one active primary caregiver per patient.
 CareLinkSchema.index({ patientId: 1 }, {
-    unique: true, partialFilterExpression: { status: 'active', role: 'primary' },
+    name: 'one_active_primary_per_patient', unique: true, partialFilterExpression: { status: 'active', role: 'primary' },
 });
 
 export default mongoose.model<ICareLink>('CareLink', CareLinkSchema);

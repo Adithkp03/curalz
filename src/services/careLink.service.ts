@@ -81,7 +81,7 @@ export async function respond(patient: any, linkId: unknown, approve: boolean, r
     let link: any;
     try {
         // Atomic: only one of concurrent approve/decline/revoke can take a pending link.
-        link = await CareLink.findOneAndUpdate({ _id: linkId, patientId: patient._id, status: 'pending' } as any, { $set: set }, { new: true });
+        link = await CareLink.findOneAndUpdate({ _id: linkId, patientId: patient._id, status: 'pending' } as any, { $set: set }, { returnDocument: 'after' });
     } catch (e) {
         if (isDup(e)) throw new LinkError(409, 'This patient already has an active primary caregiver');
         throw e;
@@ -97,7 +97,7 @@ export async function revoke(actor: any, linkId: unknown) {
     const owner = actor.role === 'patient' ? { patientId: actor._id } : { caregiverId: actor._id };
     const link: any = await CareLink.findOneAndUpdate(
         { _id: linkId, ...owner, status: OPEN } as any,
-        { $set: { status: 'revoked', revokedAt: new Date(), revokedBy: actor._id } }, { new: true });
+        { $set: { status: 'revoked', revokedAt: new Date(), revokedBy: actor._id } }, { returnDocument: 'after' });
     if (!link) throw new LinkError(404, 'No such link');
     await syncAccess(link);
     // Ending a link also ends any location permission, so re-linking later starts from zero.

@@ -14,13 +14,14 @@ export interface ILocationGrant extends Document {
 }
 
 const LocationGrantSchema = new Schema({
-    patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    caregiverId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    caregiverId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['active', 'revoked'], default: 'active' },
     grantedAt: { type: Date, default: Date.now },
     revokedAt: Date,
 }, { timestamps: true });
 
-LocationGrantSchema.index({ patientId: 1, caregiverId: 1 }, { unique: true, partialFilterExpression: { status: 'active' } });
+LocationGrantSchema.index({ patientId: 1 });
+LocationGrantSchema.index({ patientId: 1, caregiverId: 1 }, { name: 'one_active_grant_per_pair', unique: true, partialFilterExpression: { status: 'active' } });
 
 export default mongoose.model<ILocationGrant>('LocationGrant', LocationGrantSchema);
