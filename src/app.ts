@@ -10,6 +10,7 @@ import conversationRoutes from "./routes/conversation.routes";
 import chatRoutes from "./routes/chat.routes";
 import caregiverRoutes from "./routes/caregiver.routes";
 import careLinkRoutes from "./routes/careLink.routes";
+import { makeLocationRouter } from "./routes/location.routes";
 import mediaRoutes from "./routes/media.routes";
 import patientRoutes from "./routes/patient.routes";
 import elevenlabsRoutes from "./routes/elevenlabs.route";
@@ -46,6 +47,7 @@ app.use("/api/caregiver", caregiverRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/patient", patientRoutes);
 app.use("/api/care-links", careLinkRoutes);
+app.use("/api/location", makeLocationRouter()); // 404 unless LOCATION_FEATURE_ENABLED=true
 app.use("/api/elevenlabs", elevenlabsRoutes);
 
 app.get("/", (req, res) => {
