@@ -8,6 +8,7 @@ export interface ICareLink extends Document {
     caregiverId: mongoose.Types.ObjectId;
     role: CareLinkRole;
     status: CareLinkStatus;
+    legacy?: boolean;
     respondedAt?: Date;
     revokedAt?: Date;
     revokedBy?: mongoose.Types.ObjectId;
@@ -18,9 +19,19 @@ const CareLinkSchema = new Schema({
     caregiverId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     role: { type: String, enum: ['primary', 'secondary'], default: 'secondary' },
     status: { type: String, enum: ['pending', 'active', 'declined', 'revoked'], default: 'pending' },
+    legacy: { type: Boolean, default: false },
     respondedAt: Date,
     revokedAt: Date,
     revokedBy: { type: Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
+
+// One open (pending/active) link per patient-caregiver pair, even under concurrent requests.
+CareLinkSchema.index({ patientId: 1, caregiverId: 1 }, {
+    unique: true, partialFilterExpression: { status: { $in: ['pending', 'active'] } },
+});
+// At most one active primary caregiver per patient.
+CareLinkSchema.index({ patientId: 1 }, {
+    unique: true, partialFilterExpression: { status: 'active', role: 'primary' },
+});
 
 export default mongoose.model<ICareLink>('CareLink', CareLinkSchema);
