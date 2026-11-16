@@ -176,7 +176,12 @@ export async function dispatchPending(send: Sender, now = Date.now(), cfg: Locat
         try {
             const state = await send({ userId: String(it.userId), kind: it.kind, title: it.title, body: it.body, data: Object.fromEntries(it.data ?? []) });
             await Outbox.updateOne({ _id: it._id }, { $set: { status: state, reason: undefined } }); out[state]++;
-        } catch { await Outbox.updateOne({ _id: it._id }, { $set: { status: 'failed', reason: 'sender error' } }); out.failed++; }
+        } catch (e: any) {
+            // Distinguish "no device registered" (FCM never called) from a provider rejection; fixed strings only, never the error text.
+            const m = String(e?.message ?? '');
+            const reason = m === 'no registered device' ? 'no registered device' : m === 'FCM rejected' ? 'FCM rejected' : 'sender error';
+            await Outbox.updateOne({ _id: it._id }, { $set: { status: 'failed', reason } }); out.failed++;
+        }
     }
     return out;
 }
