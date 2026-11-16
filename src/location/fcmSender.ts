@@ -29,7 +29,7 @@ export const fcmDiagnostic = async () => {
         const app = admin.apps?.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(cred) });
         await admin.messaging(app).send({ token: 'diagnostic-not-a-real-token', data: { kind: 'diagnostic' } }, true);
         out.dryRun = 'accepted';
-    } catch (e: any) { out.dryRun = String(e?.code ?? 'error'); }
+    } catch (e: any) { out.dryRun = String(e?.code ?? e?.errorInfo?.code ?? 'error'); out.detail = String(e?.message ?? '').replace(/[\r\n]+/g, ' ').slice(0, 200); }
     return out;
 };
 
