@@ -38,6 +38,8 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
         const gs: any[] = await LocationGrant.find({ patientId: req.user._id, status: 'active' } as any);
         await LocationGrant.updateMany({ patientId: req.user._id, status: 'active' } as any, { $set: { status: 'revoked', revokedAt: new Date() } });
         for (const g of gs) await onAccessEnded(req.user._id, g.caregiverId);
+        await setBatteryOptIn(req.user, false);   // "stop sharing with everyone" also ends battery sharing, deletes the reading, cancels queued alerts and sends the clear
+        await dispatchPending(send).catch(() => undefined);
         return { status: 'off' };
     }));
     router.put('/zone/:patientId', run(req => setZone(req.user, req.params.patientId, req.body)));
