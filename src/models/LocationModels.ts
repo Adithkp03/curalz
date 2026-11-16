@@ -62,7 +62,7 @@ export const CaregiverSharing = mongoose.model('CaregiverSharing', CaregiverShar
  */
 const OutboxSchema = new Schema({
     userId: { type: Schema.Types.ObjectId, required: true },
-    kind: { type: String, enum: ['patient_left_zone', 'caregiver_nearby'], required: true },
+    kind: { type: String, enum: ['patient_left_zone', 'caregiver_nearby', 'care_link_request'], required: true },
     patientId: { type: Schema.Types.ObjectId, required: true },
     caregiverId: { type: Schema.Types.ObjectId },
     title: String, body: String,

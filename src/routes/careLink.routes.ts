@@ -1,3 +1,7 @@
+import { locationFeatureEnabled } from '../location/config';
+import { makeFcmSender } from '../location/fcmSender';
+import { dispatchPending } from '../services/location.service';
+import { logOnlySender } from './location.routes';
 import express, { Response } from 'express';
 import { protect } from '../middleware/auth.middleware';
 import { requestLink, listIncoming, listOutgoing, respond, revoke, LinkError } from '../services/careLink.service';
@@ -13,7 +17,11 @@ const run = (fn: (req: any) => Promise<unknown>) => async (req: any, res: Respon
     }
 };
 
-router.post('/request', run(req => requestLink(req.user, req.body?.email)));
+router.post('/request', run(async req => {
+    const r = await requestLink(req.user, req.body?.email);
+    if (locationFeatureEnabled()) await dispatchPending(makeFcmSender() ?? logOnlySender).catch(() => undefined); // inline: no background worker on serverless
+    return r;
+}));
 router.get('/outgoing', run(req => listOutgoing(req.user)));
 router.get('/incoming', run(req => listIncoming(req.user)));
 router.post('/:id/approve', run(req => respond(req.user, req.params.id, true, req.body?.role)));

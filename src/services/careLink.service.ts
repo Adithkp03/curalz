@@ -1,6 +1,8 @@
 import CareLink from '../models/CareLink';
 import User from '../models/User';
 import LocationGrant from '../models/LocationGrant';
+import { Outbox } from '../models/LocationModels';
+import { locationFeatureEnabled } from '../location/config';
 
 export class LinkError extends Error {
     constructor(public status: number, message: string) { super(message); }
@@ -35,8 +37,15 @@ export async function requestLink(caregiver: any, email: unknown) {
         const existing = await CareLink.findOne({ patientId: patient._id, caregiverId: caregiver._id, status: OPEN });
         const legacy = (caregiver.linkedPatientIds || []).some((p: any) => String(p) === String(patient._id));
         if (!existing && !legacy) {
-            try { await CareLink.create({ patientId: patient._id, caregiverId: caregiver._id, status: 'pending' }); }
-            catch (e) { if (!isDup(e)) throw e; }
+            try {
+                await CareLink.create({ patientId: patient._id, caregiverId: caregiver._id, status: 'pending' });
+                // Tell the patient (push only; it never approves anything). Test host only, same switch as the other alerts.
+                if (locationFeatureEnabled()) {
+                    await Outbox.create({ userId: patient._id, patientId: patient._id, caregiverId: caregiver._id, kind: 'care_link_request',
+                        title: 'New caregiver request', body: `${caregiver.name ?? 'A caregiver'} asked to link with you. Open the app to approve or decline.`,
+                        data: { patientId: String(patient._id) }, status: 'queued' } as any).catch(() => undefined);
+                }
+            } catch (e) { if (!isDup(e)) throw e; }
         }
     }
     return { message: 'If a matching patient account exists, it now has a pending request. Access starts only after the patient approves.' };

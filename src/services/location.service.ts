@@ -7,7 +7,7 @@ import { hasLocationAuthority } from './locationAuthority.service';
 import { PROPOSED_LOCATION_CONFIG, LocationConfig } from '../location/config';
 import { Fix, isValidFix, validateZone, stepBoundary, stepNearby } from '../location/evaluate';
 
-export interface Notification { userId: string; kind: 'patient_left_zone' | 'caregiver_nearby'; title: string; body: string; data?: Record<string, string> }
+export interface Notification { userId: string; kind: 'patient_left_zone' | 'caregiver_nearby' | 'care_link_request'; title: string; body: string; data?: Record<string, string> }
 /** Push sender is injected. Returns 'sent' only if the provider accepted the message; 'logged' if it only logged. */
 export type Sender = (n: Notification) => Promise<'sent' | 'logged'>;
 
@@ -165,8 +165,11 @@ export async function dispatchPending(send: Sender, now = Date.now(), cfg: Locat
         const cancel = async (reason: string) => { await Outbox.updateOne({ _id: it._id }, { $set: { status: 'cancelled', reason } }); out.cancelled++; };
         if (now - new Date(it.createdAt).getTime() > LOCATION_RETENTION_SECONDS * 1000) { await cancel('past retention'); continue; }  // logical expiry, independent of the TTL sweep
         const maxAge = it.kind === 'caregiver_nearby' ? cfg.nearbyMaxFixAgeMs : cfg.maxFixAgeMs;
-        if (now - it.fixRecordedAt > maxAge) { await cancel('fix too old at send time'); continue; }
-        if (it.kind === 'patient_left_zone') {
+        if (it.kind !== 'care_link_request' && now - it.fixRecordedAt > maxAge) { await cancel('fix too old at send time'); continue; }
+        if (it.kind === 'care_link_request') {
+            // Only tell the patient about a request that is still waiting for them.
+            if (!(await CareLink.findOne({ patientId: it.patientId, caregiverId: it.caregiverId, status: 'pending' } as any))) { await cancel('request no longer pending'); continue; }
+        } else if (it.kind === 'patient_left_zone') {
             const z = await validZone(it.patientId);
             if (!z || z.rev !== it.zoneRev) { await cancel('zone changed or gone'); continue; }
             if (!(await hasLocationAuthority(it.userId, it.patientId))) { await cancel('access ended'); continue; }
