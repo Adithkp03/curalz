@@ -5,6 +5,7 @@ import { grantLocation, revokeLocation } from '../services/locationAuthority.ser
 import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, unregisterDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
+import { fcmDiagnostic } from '../location/fcmSender';
 
 /** Default sender only LOGS a kind (no coordinates, no push); its items end as 'logged', never 'sent'. */
 export const logOnlySender: Sender = async n => { console.log(`[location] ${n.kind} logged (no push sender configured)`); return 'logged'; };
@@ -20,6 +21,8 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
         }
     };
     router.get('/status', run(req => sharingStatus(req.user)));
+    // Test host only (fail closed): server-side FCM credential/API check, dry run to a fake token, no device, no delivery.
+    router.get('/diagnostics/fcm', run(async () => { if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found'); return fcmDiagnostic(); }));
     router.post('/grants', run(req => grantLocation(req.user, req.body?.caregiverId)));            // patient turns sharing on for a caregiver
     router.post('/grants/revoke', run(req => revokeLocation(req.user, req.user.role === 'patient' ? String(req.user._id) : req.body?.patientId, req.user.role === 'caregiver' ? String(req.user._id) : req.body?.caregiverId)));
     router.post('/sharing/off', run(async req => {                                                  // patient turns all sharing off

@@ -8,14 +8,38 @@ import type { Sender } from '../services/location.service';
  * Returns 'sent' only when FCM accepted the message for at least one registered device (that is acceptance,
  * not proof the phone received it). No registered device or FCM rejection throws, so the outbox row becomes 'failed'.
  */
+// Literal specifier so the serverless bundler includes firebase-admin in the deployed function.
+const loadAdmin = async (): Promise<any> => { const m: any = await import('firebase-admin'); return m.default ?? m; };
+
+/**
+ * Test-host diagnostic. Sends a dry-run (validate_only) FCM request to a deliberately fake token: nothing is delivered
+ * and no device is involved. An 'invalid-argument' or 'registration-token-not-registered' answer means the credential
+ * loaded, authenticated and the FCM API accepted the request path; auth or permission codes mean it did not.
+ * It never returns the credential. It is not delivery proof.
+ */
+export const fcmDiagnostic = async () => {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    if (!raw) return { credentialPresent: false };
+    let cred: any;
+    try { cred = JSON.parse(raw); } catch { return { credentialPresent: true, credentialParses: false }; }
+    const out: any = { credentialPresent: true, credentialParses: true, projectId: cred.project_id, clientEmail: cred.client_email };
+    try {
+        const admin = await loadAdmin();
+        out.sdkLoaded = true;
+        const app = admin.apps?.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(cred) });
+        await admin.messaging(app).send({ token: 'diagnostic-not-a-real-token', data: { kind: 'diagnostic' } }, true);
+        out.dryRun = 'accepted';
+    } catch (e: any) { out.dryRun = String(e?.code ?? 'error'); }
+    return out;
+};
+
 export const makeFcmSender = (): Sender | null => {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     if (!raw) return null;
     let messaging: any;
     const init = async () => {
         if (messaging) return messaging;
-        const mod = 'firebase-admin';
-        const admin: any = (await import(mod)).default ?? (await import(mod));
+        const admin: any = await loadAdmin();
         const app = admin.apps?.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(JSON.parse(raw)) });
         messaging = admin.messaging(app);
         return messaging;
