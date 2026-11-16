@@ -31,11 +31,11 @@ describe('LOCATION_TEST_MODE host', () => {
   it('serves only auth, care-links and location; everything else is 404', async () => {
     await boot({ LOCATION_TEST_MODE: 'true', JWT_SECRET: 'x'.repeat(32), MONGO_URI: mongod.getUri(), LOCATION_FEATURE_ENABLED: 'true' });
     expect((await call('/health')).body.mode).toBe('location-test');
-    for (const p of ['/api/chat', '/api/events', '/api/media', '/api/caregiver/patients', '/api/patient/profile', '/api/conversation', '/api/elevenlabs', '/queues'])
+    for (const p of ['/api/chat', '/api/events', '/api/media', '/api/caregiver/patient/abc/profile', '/api/patient/profile', '/api/conversation', '/api/elevenlabs', '/queues'])
       expect((await call(p)).status, p).toBe(404);
   });
   it('requires authentication on care-link and location routes', async () => {
-    for (const p of ['/api/care-links/incoming', '/api/location/status', '/api/location/live/abc', '/api/location/zone/abc'])
+    for (const p of ['/api/care-links/incoming', '/api/caregiver/patients', '/api/location/status', '/api/location/live/abc', '/api/location/zone/abc'])
       expect((await call(p)).status, p).toBe(401);
     expect((await call('/api/location/status', { headers: { authorization: 'Bearer nope' } })).status).toBe(401);
   });
