@@ -9,7 +9,12 @@ import type { Sender } from '../services/location.service';
  * not proof the phone received it). No registered device or FCM rejection throws, so the outbox row becomes 'failed'.
  */
 // Literal specifier so the serverless bundler includes firebase-admin in the deployed function.
-const loadAdmin = async (): Promise<any> => { const m: any = await import('firebase-admin'); return m.default ?? m; };
+const getMessagingFor = async (cred: any): Promise<any> => {
+    const { initializeApp, getApps, getApp, cert }: any = await import('firebase-admin/app');
+    const { getMessaging }: any = await import('firebase-admin/messaging');
+    const app = getApps().length ? getApp() : initializeApp({ credential: cert(cred) });
+    return getMessaging(app);
+};
 
 /**
  * Test-host diagnostic. Sends a dry-run (validate_only) FCM request to a deliberately fake token: nothing is delivered
@@ -24,10 +29,9 @@ export const fcmDiagnostic = async () => {
     try { cred = JSON.parse(raw); } catch { return { credentialPresent: true, credentialParses: false }; }
     const out: any = { credentialPresent: true, credentialParses: true, projectId: cred.project_id, clientEmail: cred.client_email };
     try {
-        const admin = await loadAdmin();
+        const messaging = await getMessagingFor(cred);
         out.sdkLoaded = true;
-        const app = admin.apps?.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(cred) });
-        await admin.messaging(app).send({ token: 'diagnostic-not-a-real-token', data: { kind: 'diagnostic' } }, true);
+        await messaging.send({ token: 'diagnostic-not-a-real-token', data: { kind: 'diagnostic' } }, true);
         out.dryRun = 'accepted';
     } catch (e: any) { out.dryRun = String(e?.code ?? e?.errorInfo?.code ?? 'error'); out.detail = String(e?.message ?? '').replace(/[\r\n]+/g, ' ').slice(0, 200); }
     return out;
@@ -39,9 +43,7 @@ export const makeFcmSender = (): Sender | null => {
     let messaging: any;
     const init = async () => {
         if (messaging) return messaging;
-        const admin: any = await loadAdmin();
-        const app = admin.apps?.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(JSON.parse(raw)) });
-        messaging = admin.messaging(app);
+        messaging = await getMessagingFor(JSON.parse(raw));
         return messaging;
     };
     return async n => {
