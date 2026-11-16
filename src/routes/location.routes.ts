@@ -2,7 +2,7 @@ import express, { Response } from 'express';
 import { protect } from '../middleware/auth.middleware';
 import { LinkError } from '../services/careLink.service';
 import { grantLocation, revokeLocation } from '../services/locationAuthority.service';
-import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
+import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, unregisterDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
 
@@ -40,5 +40,6 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
     router.post('/caregiver-sharing/off', run(req => setCaregiverSharing(req.user, false)));
     router.get('/live/:patientId', run(req => liveLocation(req.user, req.params.patientId)));
     router.post('/device-token', run(req => registerDeviceToken(req.user, req.body?.token)));
+    router.post('/device-token/remove', run(req => unregisterDeviceToken(req.user, req.body?.token)));
     return router;
 };

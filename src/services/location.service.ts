@@ -198,6 +198,13 @@ export async function registerDeviceToken(user: any, token: unknown, platform = 
     return { ok: true };
 }
 
+/** Remove this device's token, only if it belongs to the signed-in user (logout). */
+export async function unregisterDeviceToken(user: any, token: unknown) {
+    if (typeof token !== 'string') throw new LinkError(400, 'Invalid token');
+    await DeviceToken.deleteOne({ token, userId: user._id });
+    return { ok: true };
+}
+
 /** What the signed-in user can see about location sharing. Names only; no coordinates. */
 export async function sharingStatus(user: any) {
     const User = (await import('../models/User')).default;

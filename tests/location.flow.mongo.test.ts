@@ -7,9 +7,9 @@ import LocationGrant from '../src/models/LocationGrant';
 import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel } from '../src/models/LocationModels';
 import { requestLink, respond } from '../src/services/careLink.service';
 import { grantLocation, revokeLocation } from '../src/services/locationAuthority.service';
-import { CaregiverSharing, Outbox } from '../src/models/LocationModels';
+import { CaregiverSharing, Outbox, DeviceToken, LOCATION_RETENTION_SECONDS } from '../src/models/LocationModels';
 import { revoke } from '../src/services/careLink.service';
-import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, Notification } from '../src/services/location.service';
+import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, registerDeviceToken, unregisterDeviceToken, Notification } from '../src/services/location.service';
 
 // SYNTHETIC coordinates only, real MongoDB. Disabled-by-default feature; this exercises the service layer, not push delivery.
 let mongod: MongoMemoryServer;
@@ -196,5 +196,31 @@ describe('boundary + sharing flow (synthetic, real MongoDB)', () => {
     expect(cs.patients[0]).toMatchObject({ canSetBoundary: true, patientSharing: true });
     expect(ss.patients[0]).toMatchObject({ canSetBoundary: false, patientSharing: false });
     expect(JSON.stringify(ps)).not.toMatch(/lat|lon/);
+  });
+});
+
+describe('device tokens, account switch and retention', () => {
+  const TOK = (c: string) => c.repeat(40);
+  it('a token follows the account that registered it last (shared phone / account switch)', async () => {
+    await registerDeviceToken(await fresh(Pri), TOK('a'));
+    await registerDeviceToken(await fresh(Sec), TOK('a'));
+    const rows: any[] = await DeviceToken.find({ token: TOK('a') });
+    expect(rows).toHaveLength(1);
+    expect(String(rows[0].userId)).toBe(String(Sec._id));
+  });
+  it('logout removes only the caller\'s own token; another account cannot remove it', async () => {
+    await registerDeviceToken(await fresh(Pri), TOK('b'));
+    await unregisterDeviceToken(await fresh(Sec), TOK('b'));
+    expect(await DeviceToken.countDocuments({ token: TOK('b') })).toBe(1);
+    await unregisterDeviceToken(await fresh(Pri), TOK('b'));
+    expect(await DeviceToken.countDocuments({ token: TOK('b') })).toBe(0);
+  });
+  it('position and outbox collections carry a TTL index so stale data expires without any request', async () => {
+    for (const [m, name] of [[PatientLocationState, 'ttl_patient_position'], [CaregiverFix, 'ttl_caregiver_position'], [Outbox, 'ttl_outbox']] as any) {
+      await m.init();
+      const idx: any[] = await m.collection.indexes();
+      const ttl = idx.find(i => i.name === name);
+      expect(ttl?.expireAfterSeconds).toBe(LOCATION_RETENTION_SECONDS);
+    }
   });
 });
