@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import User from '../src/models/User';
@@ -9,7 +9,7 @@ import { requestLink, respond } from '../src/services/careLink.service';
 import { grantLocation, revokeLocation } from '../src/services/locationAuthority.service';
 import { CaregiverSharing, Outbox, DeviceToken, LOCATION_RETENTION_SECONDS } from '../src/models/LocationModels';
 import { revoke } from '../src/services/careLink.service';
-import { boundaryAlertForCaregiver, setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, registerDeviceToken, unregisterDeviceToken, Notification } from '../src/services/location.service';
+import { materializePendingExit, boundaryAlertForCaregiver, setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, registerDeviceToken, unregisterDeviceToken, Notification } from '../src/services/location.service';
 
 // SYNTHETIC coordinates only, real MongoDB. Disabled-by-default feature; this exercises the service layer, not push delivery.
 let mongod: MongoMemoryServer;
@@ -256,4 +256,18 @@ describe('logical retention (independent of the TTL sweep)', () => {
     expect(r.sent).toBe(0); expect(sent).toHaveLength(0);
     const row: any = await Outbox.findOne({}); expect(row.status).toBe('cancelled');
   });
+});
+
+describe('durable boundary intent and conservative retries',()=>{
+ const prepare=async()=>{await grantLocation(await fresh(P),String(Pri._id));await setZone(await fresh(Pri),String(P._id),HOME);await ingestPatientFix(await fresh(P),fix(0,T0),T0);await ingestPatientFix(await fresh(P),fix(800,T0+10000),T0+10000);};
+ it('recovers an outbox insert failure without losing or repeating the consumed exit',async()=>{await prepare();const spy=vi.spyOn(Outbox,'updateOne').mockRejectedValueOnce(new Error('outbox offline'));await expect(ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000)).rejects.toThrow('offline');spy.mockRestore();const st:any=await PatientLocationState.findOne({patientId:P._id});expect(st.boundary.armed).toBe(false);expect(st.pendingExit).toBeTruthy();expect(await Outbox.countDocuments()).toBe(0);await materializePendingExit(P._id);await materializePendingExit(P._id);expect(await Outbox.countDocuments({kind:'patient_left_zone'})).toBe(1);expect((await PatientLocationState.findOne({patientId:P._id}))!.get('pendingExit')).toBeUndefined();await flush(T0+80001);expect(sent).toHaveLength(1);await flush(T0+80002);expect(sent).toHaveLength(1);});
+ it('insert success then crash before intent clear is idempotent',async()=>{await prepare();const spy=vi.spyOn(PatientLocationState,'updateOne').mockRejectedValueOnce(new Error('clear failed'));await expect(ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000)).rejects.toThrow('clear');spy.mockRestore();expect(await Outbox.countDocuments()).toBe(1);await materializePendingExit(P._id);expect(await Outbox.countDocuments()).toBe(1);});
+ it('recovered event after revocation cancels rather than discloses',async()=>{await prepare();const spy=vi.spyOn(Outbox,'updateOne').mockRejectedValueOnce(new Error('offline'));await expect(ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000)).rejects.toThrow();spy.mockRestore();await revokeLocation(await fresh(P),String(P._id),String(Pri._id));await flush(T0+80001);expect(sent).toHaveLength(0);expect(await Outbox.countDocuments({status:'sent'})).toBe(0);});
+ it('safe no-device failure retries while fresh; ambiguous provider failure never automatically retries',async()=>{await prepare();await ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000);const noDevice=vi.fn(async()=>{throw new Error('no registered device')});await dispatchPending(noDevice,T0+80001);expect((await Outbox.findOne())!.reason).toBe('no registered device');await flush(T0+80002);expect(sent).toHaveLength(1);expect((await Outbox.findOne())!.reason).toBeUndefined();await Outbox.updateMany({},{$set:{status:'queued'}});const ambiguous=vi.fn(async()=>{throw new Error('unknown provider timeout')});await dispatchPending(ambiguous,T0+80003);await dispatchPending(ambiguous,T0+80004);expect(ambiguous).toHaveBeenCalledTimes(1);});
+ it('expired pending exit never reaches sender',async()=>{await prepare();const spy=vi.spyOn(Outbox,'updateOne').mockRejectedValueOnce(new Error('offline'));await expect(ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000)).rejects.toThrow();spy.mockRestore();await flush(T0+80000+300001);expect(sent).toHaveLength(0);expect((await Outbox.findOne())!.status).toBe('cancelled');});
+ it('concurrent materialization keeps one row per recipient',async()=>{await prepare();const spy=vi.spyOn(Outbox,'updateOne').mockRejectedValueOnce(new Error('offline'));await expect(ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000)).rejects.toThrow();spy.mockRestore();await Promise.all([materializePendingExit(P._id),materializePendingExit(P._id)]);expect(await Outbox.countDocuments()).toBe(1);});
+ it('recovered old-zone event cancels after a boundary change',async()=>{await prepare();const spy=vi.spyOn(Outbox,'updateOne').mockRejectedValueOnce(new Error('offline'));await expect(ingestPatientFix(await fresh(P),fix(820,T0+80000),T0+80000)).rejects.toThrow();spy.mockRestore();await setZone(await fresh(Pri),String(P._id),{...HOME,radiusM:400});await flush(T0+80001);expect(sent).toHaveLength(0);expect((await Outbox.findOne())!.status).toBe('cancelled');});
+
+ it('never automatically retries pre-repair historical failed rows',async()=>{await Outbox.create({userId:Pri._id,patientId:P._id,kind:'patient_left_zone',status:'failed',reason:'no registered device',fixRecordedAt:T0});const spy=vi.fn(async()=> 'sent' as const);await dispatchPending(spy,T0+1000);expect(spy).not.toHaveBeenCalled();expect((await Outbox.findOne())!.status).toBe('failed');});
+
 });

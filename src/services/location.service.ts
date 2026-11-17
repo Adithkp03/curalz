@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import {createHash} from 'node:crypto';
 import CareLink from '../models/CareLink';
 import LocationGrant from '../models/LocationGrant';
 import { SafeZone, PatientLocationState, CaregiverFix, NearbyStateModel, DeviceToken, CaregiverSharing, Outbox, BatteryOptIn, LOCATION_RETENTION_SECONDS } from '../models/LocationModels';
@@ -64,10 +65,24 @@ async function validZone(patientId: any): Promise<any | null> {
 const enqueue = (n: Notification & { patientId: any; caregiverId?: any; zoneRev?: number; fixRecordedAt?: number }) =>
     Outbox.create({ ...n, status: 'queued' });
 
+/** Durable intent is committed in the SAME patient-state update as disarming.
+ * Deterministic per-recipient _id makes retries safe after an insert/clear crash.
+ * Dispatch still rechecks current grant/link,zone revision,and freshness.
+ */
+export async function materializePendingExit(patientId:any) {
+    const st:any=await PatientLocationState.findOne({patientId});const p=st?.pendingExit;if(!p)return;
+    for(const userId of p.recipients){
+        const id=createHash('sha256').update(`${p.id}:${userId}`).digest('hex').slice(0,24);
+        await Outbox.updateOne({_id:new mongoose.Types.ObjectId(id)},{$setOnInsert:{userId,patientId,kind:'patient_left_zone',title:p.title,body:'Open the app to see their live location.',zoneRev:p.zoneRev,fixRecordedAt:p.fix.recordedAt,data:{patientId:String(patientId),lat:String(p.fix.lat),lon:String(p.fix.lon),accuracyM:String(p.fix.accuracyM),recordedAt:String(p.fix.recordedAt)},status:'queued',retryNoDevice:true,createdAt:new Date(p.createdAt)}},{upsert:true});
+    }
+    await PatientLocationState.updateOne({patientId,'pendingExit.id':p.id},{$unset:{pendingExit:1}});
+}
+
 /** Patient device reports a fix. Sharing is on only while at least one grant is active (patient opt-in, until turned off). */
 export async function ingestPatientFix(patient: any, raw: any, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
     if (patient.role !== 'patient') throw new LinkError(403, 'Only the patient device reports patient location');
     const fix = cleanFix(raw);
+    await materializePendingExit(patient._id);
     const caregivers = await authorizedCaregivers(patient._id);
     if (!caregivers.length) throw new LinkError(403, 'Location sharing is off');
     const zone = await validZone(patient._id);
@@ -79,19 +94,13 @@ export async function ingestPatientFix(patient: any, raw: any, now = Date.now(),
         let boundary = { armed: st.boundary.armed, outsideSince: st.boundary.outsideSince ?? undefined, outsideCount: st.boundary.outsideCount };
         alert = false;
         if (zone) { const r = stepBoundary(boundary, zone, fix, now, cfg); boundary = r.state as any; alert = r.alert; }
+        const pendingExit=alert?{id:String(new mongoose.Types.ObjectId()),recipients:caregivers,zoneRev:zone.rev,fix,title:`${patient.name} is outside the safe area`,createdAt:now}:undefined;
         const won = await PatientLocationState.findOneAndUpdate({ patientId: patient._id, rev: st.rev } as any,
-            { $set: { lastFix: fix, boundary, rev: st.rev + 1 } }, { new: true });
+            { $set: { lastFix: fix, boundary, rev: st.rev + 1, ...(pendingExit?{pendingExit}:{}) } }, { new: true });
         stored = !!won;
     }
     if (!stored) throw new LinkError(409, 'Busy, retry');
-    if (alert) {
-        // Primary and secondary caregivers who hold location authority both get the alert with the live position.
-        await Promise.all(caregivers.map(c => enqueue({
-            userId: c, patientId: patient._id, kind: 'patient_left_zone', title: `${patient.name} is outside the safe area`,
-            body: 'Open the app to see their live location.', zoneRev: zone.rev, fixRecordedAt: fix.recordedAt,
-            data: { patientId: String(patient._id), lat: String(fix.lat), lon: String(fix.lon), accuracyM: String(fix.accuracyM), recordedAt: String(fix.recordedAt) },
-        } as any)));
-    }
+    if (alert) await materializePendingExit(patient._id);
     await Promise.all(caregivers.map(c => nearbyCheck(patient, c, now, cfg)));
     return { stored: true, alert };
 }
@@ -162,6 +171,11 @@ async function nearbyCheck(patient: any, caregiverId: string, now: number, cfg: 
  */
 export async function dispatchPending(send: Sender, now = Date.now(), cfg: LocationConfig = PROPOSED_LOCATION_CONFIG) {
     const out = { sent: 0, logged: 0, cancelled: 0, failed: 0 };
+    const pending:any[]=await PatientLocationState.find({'pendingExit.id':{$exists:true}}).limit(100);
+    for(const st of pending)await materializePendingExit(st.patientId);
+    // Only a confirmed pre-send failure is automatically retryable. Ambiguous provider
+    // failures are never replayed: the device may already have received them.
+    await Outbox.updateMany({status:'failed',reason:'no registered device',retryNoDevice:true,fixRecordedAt:{$gte:now-cfg.maxFixAgeMs}},{$set:{status:'queued'}});
     const items: any[] = await Outbox.find({ status: 'queued' }).sort({ createdAt: 1 }).limit(200);
     for (const it of items) {
         const claimed = await Outbox.findOneAndUpdate({ _id: it._id, status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'dispatching' } }); // claim: no double send
@@ -185,7 +199,7 @@ export async function dispatchPending(send: Sender, now = Date.now(), cfg: Locat
         }
         try {
             const state = await send({ userId: String(it.userId), kind: it.kind, title: it.title, body: it.body, data: { ...Object.fromEntries(it.data ?? []), ...(it.kind === 'patient_left_zone' ? { eventId: String(it._id), recipientId: String(it.userId) } : {}) } });
-            await Outbox.updateOne({ _id: it._id }, { $set: { status: state, reason: undefined } }); out[state]++;
+            await Outbox.updateOne({ _id: it._id }, { $set: { status: state }, $unset:{reason:1} }); out[state]++;
         } catch (e: any) {
             // Distinguish "no device registered" (FCM never called) from a provider rejection; fixed strings only, never the error text.
             const m = String(e?.message ?? '');

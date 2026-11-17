@@ -18,6 +18,7 @@ const fixShape = { lat: Number, lon: Number, accuracyM: Number, recordedAt: Numb
 const PatientLocationStateSchema = new Schema({
     patientId: { type: Schema.Types.ObjectId, required: true, unique: true },
     lastFix: fixShape,
+    pendingExit: Schema.Types.Mixed,
     boundary: { armed: { type: Boolean, default: true }, outsideSince: Number, outsideCount: { type: Number, default: 0 } },
     rev: { type: Number, default: 0 },
 }, { timestamps: true });
@@ -72,6 +73,7 @@ const OutboxSchema = new Schema({
     fixRecordedAt: Number,
     status: { type: String, enum: ['queued', 'cancelled', 'logged', 'sent', 'failed'], default: 'queued' },
     reason: String,
+    retryNoDevice: {type:Boolean,default:false},
 }, { timestamps: true });
 OutboxSchema.index({ status: 1, createdAt: 1 });
 OutboxSchema.index({ createdAt: 1 }, { expireAfterSeconds: LOCATION_RETENTION_SECONDS, name: 'ttl_outbox' });
