@@ -9,7 +9,7 @@ export function cronAuthorized(header:unknown){const secret=process.env.MEDICATI
 /** Request-driven until an independently approved scheduler is configured. No timers on a serverless host. */
 export async function sweepMedication(send:CareSender|null=makeFcmSender(),now=Date.now(),onlyPatient?:string){
  if(!followupConfigured()||!send)return {enabled:false,attempted:0};
- const prefs:any[]=await MedicationPreferences.find({followupOn:true,...(onlyPatient?{patientId:onlyPatient}:{})}).limit(100);let attempted=0;
+ await MedicationFollowup.init();const prefs:any[]=await MedicationPreferences.find({followupOn:true,...(onlyPatient?{patientId:onlyPatient}:{})}).limit(100);let attempted=0;
  for(const pref of prefs){
   // Materialize schedules with the patient's own scope, never borrowing a caregiver's permission.
   await listMedication({_id:pref.patientId,role:'patient'},String(pref.patientId),now);
