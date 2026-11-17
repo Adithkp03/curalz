@@ -47,15 +47,19 @@ export const makeFcmSender = (): Sender | null => {
         return messaging;
     };
     return async n => {
-        const tokens = (await DeviceToken.find({ userId: n.userId } as any)).map((t: any) => t.token);
+        const devices: any[] = await DeviceToken.find({ userId: n.userId } as any);
+        const tokens = devices.map(t => t.token);
         if (!tokens.length) throw new Error('no registered device');
         const m = await init();
-        const clear = n.kind === 'battery_clear';   // data-only: lets the app remove a shown battery alert, shows nothing itself
-        const res = await m.sendEachForMulticast({
-            tokens, ...(clear ? {} : { notification: { title: n.title, body: n.body } }),
-            data: { kind: n.kind, patientId: n.data?.patientId ?? '' },
-            android: { priority: 'high', ...(n.kind === 'battery_low' ? { notification: { tag: `battery-low-${n.data?.patientId ?? ''}` } } : {}) },
-        });
+        const clear = n.kind === 'battery_clear';
+        // Old APKs still receive a system notification. Only clients advertising
+        // the new handler get data-only boundary events and create their own FSI.
+        const res = await m.sendEach(devices.map(d => ({
+            token: d.token,
+            ...((clear || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
+            data: { kind: n.kind, patientId: n.data?.patientId ?? '', eventId: n.data?.eventId ?? '', recipientId: n.userId },
+            android: { priority: 'high', ttl: 300000, ...(n.kind === 'battery_low' ? { notification: { tag: `battery-low-${n.data?.patientId ?? ''}` } } : {}) },
+        })));
         const bad = res.responses.map((r: any, i: number) => (!r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code ?? '') ? tokens[i] : null)).filter(Boolean);
         if (bad.length) await DeviceToken.deleteMany({ token: { $in: bad } } as any);
         if (res.successCount < 1) throw new Error('FCM rejected');

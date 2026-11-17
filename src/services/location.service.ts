@@ -184,7 +184,7 @@ export async function dispatchPending(send: Sender, now = Date.now(), cfg: Locat
             if (!(await hasLocationAuthority(it.caregiverId, it.patientId)) || !(await CaregiverSharing.findOne({ caregiverId: it.caregiverId, active: true }))) { await cancel('opt-in ended'); continue; }
         }
         try {
-            const state = await send({ userId: String(it.userId), kind: it.kind, title: it.title, body: it.body, data: Object.fromEntries(it.data ?? []) });
+            const state = await send({ userId: String(it.userId), kind: it.kind, title: it.title, body: it.body, data: { ...Object.fromEntries(it.data ?? []), ...(it.kind === 'patient_left_zone' ? { eventId: String(it._id), recipientId: String(it.userId) } : {}) } });
             await Outbox.updateOne({ _id: it._id }, { $set: { status: state, reason: undefined } }); out[state]++;
         } catch (e: any) {
             // Distinguish "no device registered" (FCM never called) from a provider rejection; fixed strings only, never the error text.
@@ -209,9 +209,9 @@ export async function liveLocation(caregiver: any, patientId: string, now = Date
     return { status: 'live' as const, lat, lon, accuracyM, recordedAt, ageMs };
 }
 
-export async function registerDeviceToken(user: any, token: unknown, platform = 'android') {
+export async function registerDeviceToken(user: any, token: unknown, platform = 'android', boundaryAlertV1 = false) {
     if (typeof token !== 'string' || token.length < 20 || token.length > 4096) throw new LinkError(400, 'Invalid token');
-    await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform } }, { upsert: true });
+    await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform, boundaryAlertV1: boundaryAlertV1 === true } }, { upsert: true });
     return { ok: true };
 }
 
@@ -249,4 +249,17 @@ export async function sharingStatus(user: any) {
         out.push({ patientId: String(l.patientId), patientName: p?.name ?? 'Patient', role: l.role, patientSharing: sharing, canSetBoundary: l.role === 'primary' && sharing, batteryShared: !!bo?.active });
     }
     return { role: 'caregiver', mySharing: !!mine?.active, patients: out };
+}
+
+/** A push is only a hint. Re-check current recipient, grant, zone revision and event age before display. */
+export async function boundaryAlertForCaregiver(actor: any, eventId: string, now = Date.now()) {
+    oid(eventId);
+    if (actor.role !== 'caregiver') throw new LinkError(403, 'Not allowed');
+    const event: any = await Outbox.findOne({ _id: eventId, userId: actor._id, kind: 'patient_left_zone' });
+    if (!event || now - new Date(event.createdAt).getTime() > PROPOSED_LOCATION_CONFIG.maxFixAgeMs || now - event.fixRecordedAt > PROPOSED_LOCATION_CONFIG.maxFixAgeMs)
+        throw new LinkError(404, 'Alert is no longer current');
+    if (!(await hasLocationAuthority(actor._id, event.patientId))) throw new LinkError(403, 'Not allowed');
+    const zone = await validZone(event.patientId);
+    if (!zone || zone.rev !== event.zoneRev) throw new LinkError(404, 'Alert is no longer current');
+    return { eventId: String(event._id), patientId: String(event.patientId), recipientId: String(actor._id), occurredAt: new Date(event.createdAt).getTime() };
 }

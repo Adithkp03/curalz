@@ -9,7 +9,7 @@ import { requestLink, respond } from '../src/services/careLink.service';
 import { grantLocation, revokeLocation } from '../src/services/locationAuthority.service';
 import { CaregiverSharing, Outbox, DeviceToken, LOCATION_RETENTION_SECONDS } from '../src/models/LocationModels';
 import { revoke } from '../src/services/careLink.service';
-import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, registerDeviceToken, unregisterDeviceToken, Notification } from '../src/services/location.service';
+import { boundaryAlertForCaregiver, setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, setCaregiverSharing, sharingStatus, dispatchPending, registerDeviceToken, unregisterDeviceToken, Notification } from '../src/services/location.service';
 
 // SYNTHETIC coordinates only, real MongoDB. Disabled-by-default feature; this exercises the service layer, not push delivery.
 let mongod: MongoMemoryServer;
@@ -78,6 +78,22 @@ describe('boundary + sharing flow (synthetic, real MongoDB)', () => {
     const live = await liveLocation(await fresh(Sec), String(P._id), T0 + 110_000);
     expect(live!.ageMs).toBe(10_000);
     await expect(liveLocation(await fresh(Stranger), String(P._id))).rejects.toThrow('Not allowed');
+  });
+  it('boundary alert validation rejects stranger, patient, expiry, changed zone and revoked access', async () => {
+    const now = Date.now();
+    await grantLocation(await fresh(P), String(Pri._id)); await setZone(await fresh(Pri), String(P._id), HOME);
+    const z: any = await SafeZone.findOne({ patientId: P._id });
+    const event: any = await Outbox.create({ userId: Pri._id, patientId: P._id, kind: 'patient_left_zone', title: 'Boundary', body: 'Check', status: 'sent', zoneRev: z.rev, fixRecordedAt: now });
+    const id = String(event._id);
+    expect(await boundaryAlertForCaregiver(await fresh(Pri), id, now)).toMatchObject({ eventId: id, recipientId: String(Pri._id) });
+    await expect(boundaryAlertForCaregiver(await fresh(Stranger), id, now)).rejects.toThrow();
+    await expect(boundaryAlertForCaregiver(await fresh(P), id, now)).rejects.toThrow();
+    await expect(boundaryAlertForCaregiver(await fresh(Pri), id, now + 300001)).rejects.toThrow();
+    await setZone(await fresh(Pri), String(P._id), { ...HOME, radiusM: 400 });
+    await expect(boundaryAlertForCaregiver(await fresh(Pri), id, now)).rejects.toThrow();
+    await Outbox.updateOne({ _id: event._id }, { $set: { zoneRev: z.rev + 1 } });
+    await revokeLocation(await fresh(P), String(P._id), String(Pri._id));
+    await expect(boundaryAlertForCaregiver(await fresh(Pri), id, now)).rejects.toThrow();
   });
   it('turning sharing off stops alerts and live access immediately', async () => {
     await grantLocation(await fresh(P), String(Pri._id)); await setZone(await fresh(Pri), String(P._id), HOME);

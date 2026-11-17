@@ -48,7 +48,7 @@ describe('battery alerts', () => {
     await rd(23, false, T0 + 2000); await rd(20, false, T0 + 3000);
     expect(sent).toHaveLength(2);                  // no repeat while the episode is open
     expect(sent.every(n => !/\d%/.test(n.body.replace('25%', '')) || true)).toBe(true);
-    expect(JSON.stringify(sent.map(n => n.data))).not.toMatch(/24|23|20/);   // push data carries no percent
+    expect(sent.every(n => Object.keys(n.data ?? {}).every(k => k === 'patientId'))).toBe(true);   // push data carries no percent
   });
   it('charging clears: a data-only clear goes to both, queued alerts are cancelled, no repeated clears', async () => {
     await setBatteryOptIn(await fresh(P), true);

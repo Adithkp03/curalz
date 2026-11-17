@@ -4,7 +4,7 @@ import { classify } from '../location/evaluate';
 import { PROPOSED_LOCATION_CONFIG as cfg } from '../location/config';
 import { LinkError } from '../services/careLink.service';
 import { grantLocation, revokeLocation } from '../services/locationAuthority.service';
-import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, unregisterDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
+import { boundaryAlertForCaregiver, setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, unregisterDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
 import { setBatteryOptIn, ingestBattery, batteryForCaregiver } from '../services/battery.service';
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
@@ -47,6 +47,7 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
             requiredFixes: cfg.exitConfirmFixes, requiredSpanMs: cfg.exitConfirmSpanMs, maxAccuracyM: cfg.maxAccuracyM,
         };
     }));
+    router.get('/alerts/:eventId', run(req => boundaryAlertForCaregiver(req.user, req.params.eventId)));
     router.get('/status', run(req => sharingStatus(req.user)));
     // Test host only (fail closed): server-side FCM credential/API check, dry run to a fake token, no device, no delivery.
     router.get('/diagnostics/fcm', run(async () => { if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found'); return fcmDiagnostic(); }));
@@ -79,7 +80,7 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
     router.post('/caregiver-sharing/on', run(req => setCaregiverSharing(req.user, true)));
     router.post('/caregiver-sharing/off', run(req => setCaregiverSharing(req.user, false)));
     router.get('/live/:patientId', run(req => liveLocation(req.user, req.params.patientId)));
-    router.post('/device-token', run(req => registerDeviceToken(req.user, req.body?.token)));
-    router.post('/device-token/remove', run(req => unregisterDeviceToken(req.user, req.body?.token)));
+    router.post('/device-token', run(req => registerDeviceToken(req.user, req.body?.token, 'android', req.body?.boundaryAlertV1 === true)));
+    router.post('/device-token/remove', run(req => unregisterDeviceToken(req.user, req.body?.token, 'android', req.body?.boundaryAlertV1 === true)));
     return router;
 };
