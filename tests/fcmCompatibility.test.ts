@@ -13,3 +13,5 @@ it('old devices retain notification, capable devices receive boundary data for l
  expect(messages[1].data).toEqual({kind:'patient_left_zone',patientId:'patient',eventId:'event',recipientId:'owner'});
  expect(messages[1].android.ttl).toBe(300000);
 });
+
+it('medication follow-ups are always data-only for current-access revalidation',async()=>{mocks.sendEach.mockClear();process.env.FIREBASE_SERVICE_ACCOUNT_JSON='{}';mocks.devices=[{token:'legacy'},{token:'new',boundaryAlertV1:true}];mocks.sendEach.mockResolvedValue({successCount:2,responses:[{success:true},{success:true}]});await makeFcmSender()!({userId:'owner',kind:'medication_followup',title:'Dose not confirmed',body:'Check',data:{eventId:'event',patientId:'patient'}});for(const message of mocks.sendEach.mock.calls[0][0]){expect(message.notification).toBeUndefined();expect(message.data.kind).toBe('medication_followup');}});

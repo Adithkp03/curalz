@@ -58,7 +58,7 @@ export const makeFcmSender = (): CareSender | null => {
         // the new handler get data-only boundary events and create their own FSI.
         const res = await m.sendEach(devices.map(d => ({
             token: d.token,
-            ...((clear || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
+            ...((clear || n.kind==='medication_followup' || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
             data: { kind: n.kind, patientId: n.data?.patientId ?? '', eventId: n.data?.eventId ?? '', recipientId: n.userId },
             android: { priority: 'high', ttl: 300000, ...(n.kind === 'battery_low' ? { notification: { tag: `battery-low-${n.data?.patientId ?? ''}` } } : {}) },
         })));

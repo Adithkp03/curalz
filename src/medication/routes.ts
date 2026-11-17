@@ -1,5 +1,5 @@
 import express from 'express';
-import {cronAuthorized,sweepMedication} from './followup';
+import {cronAuthorized,sweepMedication,readMedicationFollowup} from './followup';
 import {protect} from '../middleware/auth.middleware';
 import {LinkError} from '../services/careLink.service';
 import {listMedication,medicationRecipients,reportDose,savePlan,setMedicationGrant,stopPlan,setFollowupPreferences} from './service';
@@ -7,6 +7,7 @@ export const medicationRouter=express.Router();
 medicationRouter.post('/jobs/sweep',async(req,res)=>{if(!cronAuthorized(req.headers.authorization))return res.status(401).json({error:'Unauthorized'});try{res.json(await sweepMedication());}catch{res.status(500).json({error:'Sweep incomplete'});}});
 medicationRouter.use(protect);
 const run=(f:(req:any)=>Promise<any>)=>async(req:any,res:any)=>{try{res.json(await f(req));}catch(e){if(e instanceof LinkError)return res.status(e.status).json({error:e.message});res.status(500).json({error:'Medication request failed'});}};
+medicationRouter.get('/followups/:id',run(r=>readMedicationFollowup(r.user,r.params.id)));
 medicationRouter.get('/sharing',run(r=>medicationRecipients(r.user)));
 medicationRouter.post('/sharing/:id',run(r=>{if(typeof r.body?.active!=='boolean')throw new LinkError(400,'Choose sharing on or off');return setMedicationGrant(r.user,r.params.id,r.body.active);}));
 medicationRouter.post('/preferences',run(r=>setFollowupPreferences(r.user,r.body)));

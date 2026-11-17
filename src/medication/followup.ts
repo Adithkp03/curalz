@@ -1,4 +1,5 @@
 import {timingSafeEqual} from 'node:crypto';
+import {LinkError} from '../services/careLink.service';
 import CareLink from '../models/CareLink';
 import {MedicationDose,MedicationFollowup,MedicationGrant,MedicationPlan,MedicationPreferences} from './models';
 import {followupConfigured,listMedication} from './service';
@@ -28,3 +29,5 @@ export async function sweepMedication(send:CareSender|null=makeFcmSender(),now=D
  }
  return {enabled:true,attempted};
 }
+
+export async function readMedicationFollowup(u:any,id:string){const {validId,medAccess}=await import('./service');validId(id);const row:any=await MedicationFollowup.findOne({_id:id,caregiverId:u._id,status:{$in:['processing','provider_accepted']}});if(!row||u.role!=='caregiver'||!row.attemptedAt||Date.now()-Number(row.attemptedAt)>300000)throw new LinkError(404,'Follow-up unavailable');const role=await medAccess(u,String(row.patientId));const [dose,link,pref]:any[]=await Promise.all([MedicationDose.findById(row.doseId),CareLink.findOne({_id:row.linkId,status:'active',role:'primary'}),MedicationPreferences.findOne({patientId:row.patientId,followupOn:true})]);const plan=await MedicationPlan.findById(dose?.planId);if(!plan?.active||!followupConfigured()||role!=='primary'||!link||!pref||dose?.state!=='not_confirmed')throw new LinkError(404,'Follow-up unavailable');return {eventId:String(row._id),patientId:String(row.patientId),recipientId:String(u._id),occurredAt:Number(row.attemptedAt)};}
