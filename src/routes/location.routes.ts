@@ -1,3 +1,4 @@
+import {startBoundaryTest,confirmBoundaryTest,readBoundaryTest} from '../services/boundaryTest.service';
 import express, { Response } from 'express';
 import { protect } from '../middleware/auth.middleware';
 import { classify } from '../location/evaluate';
@@ -47,6 +48,10 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
             requiredFixes: cfg.exitConfirmFixes, requiredSpanMs: cfg.exitConfirmSpanMs, maxAccuracyM: cfg.maxAccuracyM,
         };
     }));
+    router.post('/diagnostics/boundary-test',run(req=>startBoundaryTest(req.user,req.body?.token)));
+    router.post('/diagnostics/boundary-test/:id/confirm',run(req=>confirmBoundaryTest(req.user,req.params.id)));
+    router.get('/diagnostics/boundary-test/:id',run(req=>readBoundaryTest(req.user,req.params.id)));
+    router.post('/diagnostics/boundary-test/:id/received',run(req=>readBoundaryTest(req.user,req.params.id,true)));
     router.get('/alerts/:eventId', run(req => boundaryAlertForCaregiver(req.user, req.params.eventId)));
     router.get('/status', run(req => sharingStatus(req.user)));
     // Test host only (fail closed): server-side FCM credential/API check, dry run to a fake token, no device, no delivery.
@@ -81,6 +86,6 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
     router.post('/caregiver-sharing/off', run(req => setCaregiverSharing(req.user, false)));
     router.get('/live/:patientId', run(req => liveLocation(req.user, req.params.patientId)));
     router.post('/device-token', run(req => registerDeviceToken(req.user, req.body?.token, 'android', req.body?.boundaryAlertV1 === true)));
-    router.post('/device-token/remove', run(req => unregisterDeviceToken(req.user, req.body?.token, 'android', req.body?.boundaryAlertV1 === true)));
+    router.post('/device-token/remove', run(req => unregisterDeviceToken(req.user, req.body?.token)));
     return router;
 };

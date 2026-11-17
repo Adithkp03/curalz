@@ -66,3 +66,11 @@ export const makeFcmSender = (): Sender | null => {
         return 'sent';
     };
 };
+
+/** Explicitly initiated isolated diagnostic, only the requesting account's supplied registered device. */
+export async function sendBoundaryTest(userId:string,token:string,runId:string){
+ if(process.env.LOCATION_TEST_MODE!=='true'||!await DeviceToken.findOne({userId,token}))throw new Error('device unavailable');
+ const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON;if(!raw)throw new Error('push unavailable');
+ const m=await getMessagingFor(JSON.parse(raw));
+ await m.send({token,data:{kind:'boundary_test',runId,recipientId:userId},android:{priority:'high',ttl:60000}});
+}
