@@ -36,6 +36,17 @@ app.use(express.json());
 export const LOCATION_TEST_DB = 'alzhefi_location_test';
 const testMode = process.env.LOCATION_TEST_MODE === 'true';
 if (testMode) {
+  // Authenticated location-test responses must never be reused by an HTTP
+  // cache, including Android conditional requests after an earlier 200.
+  app.disable('etag');
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Vary', 'Authorization');
+    next();
+  });
   app.get('/health', (_req, res) => res.json({ status: 'ok', mode: 'location-test' }));
   app.use('/api', async (_req, res, next) => {
     if (!process.env.JWT_SECRET || !process.env.MONGO_URI || process.env.LOCATION_FEATURE_ENABLED !== 'true')

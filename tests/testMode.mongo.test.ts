@@ -50,6 +50,13 @@ describe('LOCATION_TEST_MODE host', () => {
     expect((await call('/api/care-links/request', { method: 'POST', headers: auth(C), body: JSON.stringify({ email: 'pat@t.test' }) })).status).toBe(200);
     const inc = (await call('/api/care-links/incoming', { headers: auth(P) })).body;
     expect((await call(`/api/care-links/${inc[0].id}/approve`, { method: 'POST', headers: auth(P), body: JSON.stringify({ role: 'primary' }) })).status).toBe(200);
+    const firstList = await fetch(base + '/api/caregiver/patients', { headers: auth(C) });
+    expect(firstList.status).toBe(200);
+    expect(firstList.headers.get('cache-control')).toBe('private, no-store, max-age=0');
+    expect(firstList.headers.get('etag')).toBeNull();
+    const conditional = await fetch(base + '/api/caregiver/patients', { headers: { ...auth(C), 'if-none-match': '*' } });
+    expect(conditional.status).toBe(200);
+    expect((await conditional.json() as any).patients).toHaveLength(1);
     const pid = (await call('/api/location/status', { headers: auth(C) })).body.patients[0].patientId;
     expect((await call(`/api/location/zone/${pid}`, { method: 'PUT', headers: auth(C), body: JSON.stringify({ lat: 10, lon: 76, radiusM: 300 }) })).status).toBe(403);  // no patient opt-in yet
     await call('/api/location/grants', { method: 'POST', headers: auth(P), body: JSON.stringify({ caregiverId: (await call('/api/location/status', { headers: auth(P) })).body.caregivers[0].caregiverId }) });
