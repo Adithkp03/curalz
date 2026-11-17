@@ -35,7 +35,7 @@ describe('LOCATION_TEST_MODE host', () => {
       expect((await call(p)).status, p).toBe(404);
   });
   it('requires authentication on care-link and location routes', async () => {
-    for (const p of ['/api/care-links/incoming', '/api/caregiver/patients', '/api/location/status', '/api/location/live/abc', '/api/location/zone/abc'])
+    for (const p of ['/api/care-links/incoming', '/api/caregiver/patients', '/api/location/status', '/api/location/live/abc', '/api/location/zone/abc', '/api/location/diagnostics/device', '/api/location/diagnostics/boundary/abc'])
       expect((await call(p)).status, p).toBe(401);
     expect((await call('/api/location/status', { headers: { authorization: 'Bearer nope' } })).status).toBe(401);
   });
@@ -44,7 +44,7 @@ describe('LOCATION_TEST_MODE host', () => {
   });
   it('end to end over HTTP: register, link, approve, opt in, set zone, fix, live', async () => {
     const reg = async (name: string, role: string) => (await call('/api/auth/register', { method: 'POST', body: JSON.stringify({ name, email: `${name}@t.test`, password: 'synthetic-pass-1', role }) })).body;
-    const P = await reg('pat', 'patient'), C = await reg('car', 'caregiver');
+    const P = await reg('pat', 'patient'), C = await reg('car', 'caregiver'), Other = await reg('other', 'caregiver');
     const auth = (u: any) => ({ authorization: `Bearer ${u.token}` });
     expect(P.token && C.token).toBeTruthy();
     expect((await call('/api/care-links/request', { method: 'POST', headers: auth(C), body: JSON.stringify({ email: 'pat@t.test' }) })).status).toBe(200);
@@ -57,8 +57,16 @@ describe('LOCATION_TEST_MODE host', () => {
     expect((await call('/api/location/fix', { method: 'POST', headers: auth(P), body: JSON.stringify({ lat: 10, lon: 76, accuracyM: 10, recordedAt: Date.now() }) })).status).toBe(200);
     const live = (await call(`/api/location/live/${pid}`, { headers: auth(C) })).body;
     expect(live.status).toBe('live');
+    const diag = await call(`/api/location/diagnostics/boundary/${pid}`, { headers: auth(C) });
+    expect(diag.status).toBe(200); expect(diag.body.position).toBe('inside');
+    expect(JSON.stringify(diag.body)).not.toMatch(/lat|lon|token|patientName/i);
+    expect((await call(`/api/location/diagnostics/boundary/${pid}`, { headers: auth(Other) })).status).toBe(403);
+    expect((await call(`/api/location/diagnostics/boundary/${pid}`, { headers: auth(P) })).status).toBe(403);
+    const devices = await call('/api/location/diagnostics/device', { headers: auth(C) });
+    expect(devices.body).toEqual({ registeredDevices: 0 });
     await call('/api/location/sharing/off', { method: 'POST', headers: auth(P) });
     expect((await call(`/api/location/live/${pid}`, { headers: auth(C) })).status).toBe(403);
+    expect((await call(`/api/location/diagnostics/boundary/${pid}`, { headers: auth(C) })).status).toBe(403);
     const dbs = (await mongoose.connection.getClient().db().admin().listDatabases()).databases.map(d => d.name);
     expect(dbs).toContain('alzhefi_location_test');
     expect(dbs).not.toContain('test');                                    // nothing written to the URI's default database

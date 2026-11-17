@@ -1,5 +1,7 @@
 import express, { Response } from 'express';
 import { protect } from '../middleware/auth.middleware';
+import { classify } from '../location/evaluate';
+import { PROPOSED_LOCATION_CONFIG as cfg } from '../location/config';
 import { LinkError } from '../services/careLink.service';
 import { grantLocation, revokeLocation } from '../services/locationAuthority.service';
 import { setZone, getZone, ingestPatientFix, ingestCaregiverFix, liveLocation, registerDeviceToken, unregisterDeviceToken, setCaregiverSharing, sharingStatus, onAccessEnded, dispatchPending, Sender } from '../services/location.service';
@@ -7,7 +9,7 @@ import { setBatteryOptIn, ingestBattery, batteryForCaregiver } from '../services
 import LocationGrant from '../models/LocationGrant';
 import { locationFeatureEnabled } from '../location/config';
 import { fcmDiagnostic } from '../location/fcmSender';
-import { Outbox } from '../models/LocationModels';
+import { DeviceToken, SafeZone, PatientLocationState, Outbox } from '../models/LocationModels';
 
 /** Default sender only LOGS a kind (no coordinates, no push); its items end as 'logged', never 'sent'. */
 export const logOnlySender: Sender = async n => { console.log(`[location] ${n.kind} logged (no push sender configured)`); return 'logged'; };
@@ -27,6 +29,23 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
         if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found');
         const rows: any[] = await Outbox.find({ userId: req.user._id } as any).sort({ createdAt: -1 }).limit(20);
         return rows.map(r => ({ kind: r.kind, status: r.status, reason: r.reason ?? null, createdAt: r.createdAt }));
+    }));
+    // Diagnostics reveal no tokens or coordinates. Same authority check as live position.
+    router.get('/diagnostics/device', run(async req => {
+        if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found');
+        return { registeredDevices: await DeviceToken.countDocuments({ userId: req.user._id }) };
+    }));
+    router.get('/diagnostics/boundary/:patientId', run(async req => {
+        if (process.env.LOCATION_TEST_MODE !== 'true') throw new LinkError(404, 'Not found');
+        const live = await liveLocation(req.user, req.params.patientId); // validates id, role, active link and patient grant
+        const [zone, state]: any[] = await Promise.all([SafeZone.findOne({ patientId: req.params.patientId }), PatientLocationState.findOne({ patientId: req.params.patientId })]);
+        const position = zone && live.status === 'live' ? classify(zone, live, Date.now()) : 'unknown';
+        return {
+            position, hasZone: !!zone, armed: state?.boundary?.armed ?? true,
+            outsideCount: state?.boundary?.outsideCount ?? 0,
+            outsideSpanMs: state?.boundary?.outsideSince && state?.lastFix ? Math.max(0, state.lastFix.recordedAt - state.boundary.outsideSince) : 0,
+            requiredFixes: cfg.exitConfirmFixes, requiredSpanMs: cfg.exitConfirmSpanMs, maxAccuracyM: cfg.maxAccuracyM,
+        };
     }));
     router.get('/status', run(req => sharingStatus(req.user)));
     // Test host only (fail closed): server-side FCM credential/API check, dry run to a fake token, no device, no delivery.
