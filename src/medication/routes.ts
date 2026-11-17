@@ -1,0 +1,16 @@
+import express from 'express';
+import {cronAuthorized,sweepMedication} from './followup';
+import {protect} from '../middleware/auth.middleware';
+import {LinkError} from '../services/careLink.service';
+import {listMedication,medicationRecipients,reportDose,savePlan,setMedicationGrant,stopPlan,setFollowupPreferences} from './service';
+export const medicationRouter=express.Router();
+medicationRouter.post('/jobs/sweep',async(req,res)=>{if(!cronAuthorized(req.headers.authorization))return res.status(401).json({error:'Unauthorized'});try{res.json(await sweepMedication());}catch{res.status(500).json({error:'Sweep incomplete'});}});
+medicationRouter.use(protect);
+const run=(f:(req:any)=>Promise<any>)=>async(req:any,res:any)=>{try{res.json(await f(req));}catch(e){if(e instanceof LinkError)return res.status(e.status).json({error:e.message});res.status(500).json({error:'Medication request failed'});}};
+medicationRouter.get('/sharing',run(r=>medicationRecipients(r.user)));
+medicationRouter.post('/sharing/:id',run(r=>{if(typeof r.body?.active!=='boolean')throw new LinkError(400,'Choose sharing on or off');return setMedicationGrant(r.user,r.params.id,r.body.active);}));
+medicationRouter.post('/preferences',run(r=>setFollowupPreferences(r.user,r.body)));
+medicationRouter.get('/:patientId',run(async r=>{const result=await listMedication(r.user,r.params.patientId);await sweepMedication(undefined,Date.now(),r.params.patientId).catch(()=>{});return result;}));
+medicationRouter.post('/:patientId/plans',run(r=>savePlan(r.user,r.params.patientId,r.body)));
+medicationRouter.post('/:patientId/plans/:id/stop',run(r=>stopPlan(r.user,r.params.patientId,r.params.id)));
+medicationRouter.post('/:patientId/doses/:id',run(r=>reportDose(r.user,r.params.patientId,r.params.id,r.body?.state,r.body?.rev)));

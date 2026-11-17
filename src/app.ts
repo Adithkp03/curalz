@@ -1,3 +1,4 @@
+import {medicationRouter} from './medication/routes';
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -56,6 +57,7 @@ if (testMode) {
   app.use('/api/auth', authRoutes);
   app.use('/api/care-links', careLinkRoutes);
   app.use('/api/caregiver', caregiverPatientsRouter); // test host: only the approved-patient list; other caregiver data stays unmounted (404)
+  app.use('/api/medication',medicationRouter); // isolated test module; never mounts legacy reminder access
   app.use('/api/location', makeLocationRouter(makeFcmSender() ?? undefined));
   app.get('/', (_req, res) => res.send('AlzheFi location test host'));
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

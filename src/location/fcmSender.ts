@@ -1,5 +1,5 @@
 import { DeviceToken } from '../models/LocationModels';
-import type { Sender } from '../services/location.service';
+import type { Sender,Notification } from '../services/location.service';
 
 /**
  * Real push sender (Firebase Cloud Messaging via firebase-admin). Not wired in by default: the app only uses it when
@@ -37,7 +37,9 @@ export const fcmDiagnostic = async () => {
     return out;
 };
 
-export const makeFcmSender = (): Sender | null => {
+export type CarePush=Omit<Notification,'kind'>&{kind:Notification['kind']|'medication_followup'};
+export type CareSender=(n:CarePush)=>Promise<'sent'|'logged'>;
+export const makeFcmSender = (): CareSender | null => {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     if (!raw) return null;
     let messaging: any;
