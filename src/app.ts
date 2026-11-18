@@ -1,3 +1,4 @@
+import {mapsRouter} from './maps/routes';
 import {locationHealthRouter} from './location-health/routes';
 import {medicationRouter} from './medication/routes';
 import express from "express";
@@ -58,6 +59,7 @@ if (testMode) {
   app.use('/api/auth', authRoutes);
   app.use('/api/care-links', careLinkRoutes);
   app.use('/api/caregiver', caregiverPatientsRouter); // test host: only the approved-patient list; other caregiver data stays unmounted (404)
+  app.use('/api/maps',mapsRouter);
   app.use('/api/location-health',locationHealthRouter);
   app.use('/api/medication',medicationRouter); // isolated test module; never mounts legacy reminder access
   app.use('/api/location', makeLocationRouter(makeFcmSender() ?? undefined));

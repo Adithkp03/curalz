@@ -1,0 +1,2 @@
+import express from 'express';import {protect} from '../middleware/auth.middleware';import {LinkError} from '../services/careLink.service';import {fetchMap} from './service';
+export const mapsRouter=express.Router();mapsRouter.use(protect);mapsRouter.post('/:patientId',async(req:any,res)=>{try{res.setHeader('Cache-Control','private,no-store');res.json(await fetchMap(req.user,req.params.patientId,req.body));}catch(e){if(e instanceof LinkError)return res.status(e.status).json({error:e.message});res.status(503).json({error:'Map unavailable. Use coordinates and radar.'});}});

@@ -32,7 +32,9 @@ export async function setZone(actor: any, patientId: string, zone: any, cfg: Loc
     if (!primary || !(await hasLocationAuthority(actor._id, patientId))) throw new LinkError(403, 'Only the primary caregiver with patient-approved location sharing can set the boundary');
     const blank = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
     if (blank(zone?.lat) || blank(zone?.lon) || blank(zone?.radiusM)) throw new LinkError(400, 'Invalid boundary');
-    const z = { lat: Number(zone?.lat), lon: Number(zone?.lon), radiusM: Number(zone?.radiusM) };
+    const z:any = { lat: Number(zone?.lat), lon: Number(zone?.lon), radiusM: Number(zone?.radiusM) };
+    if(zone?.name!==undefined){if(typeof zone.name!=='string'||zone.name.length>60||/[\x00-\x1f]/.test(zone.name))throw new LinkError(400,'Invalid safe-area name');z.name=zone.name.trim();}
+    if(zone?.isHome!==undefined){if(typeof zone.isHome!=='boolean')throw new LinkError(400,'Invalid home selection');z.isHome=zone.isHome;}
     if (!validateZone(z, cfg)) throw new LinkError(400, 'Invalid boundary');
     await SafeZone.findOneAndUpdate({ patientId }, { $set: { ...z, setBy: actor._id }, $inc: { rev: 1 } }, { upsert: true, new: true });
     // A zone change invalidates any exit alert computed against the old zone.
@@ -45,7 +47,7 @@ export async function getZone(actor: any, patientId: string) {
     const allowed = String(actor._id) === String(patientId) || (actor.role === 'caregiver' && await hasLocationAuthority(actor._id, patientId));
     if (!allowed) throw new LinkError(403, 'Not allowed');
     const z: any = await SafeZone.findOne({ patientId });
-    return z && !(z.lat === 0 && z.lon === 0) ? { lat: z.lat, lon: z.lon, radiusM: z.radiusM } : null;
+    return z && !(z.lat === 0 && z.lon === 0) ? { lat: z.lat, lon: z.lon, radiusM: z.radiusM,...(z.name!==undefined?{name:z.name}:{}),...(z.isHome!==undefined?{isHome:z.isHome}:{}) } : null;
 }
 
 async function authorizedCaregivers(patientId: unknown): Promise<string[]> {

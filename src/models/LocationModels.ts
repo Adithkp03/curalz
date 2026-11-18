@@ -5,6 +5,7 @@ export const LOCATION_RETENTION_SECONDS = Number(process.env.LOCATION_RETENTION_
 
 /** Safe zone for one patient. Only the active primary caregiver (with location authority) may write it. */
 const SafeZoneSchema = new Schema({
+    name: {type:String,maxlength:60}, isHome: {type:Boolean},
     patientId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     setBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     lat: { type: Number, required: true }, lon: { type: Number, required: true }, radiusM: { type: Number, required: true },
