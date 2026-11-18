@@ -22,7 +22,7 @@ export async function ensureHealthSessions(patientId?:any,now=Date.now()){
  if(!healthEnabled())return;await LocationHealthSession.init();
  const grants:any[]=await LocationGrant.find({status:'active',...(patientId?{patientId}:{})}).limit(1001);if(grants.length>1000)throw Error('Health enrollment batch limit');
  for(const g of grants){const link:any=await CareLink.findOne({patientId:g.patientId,caregiverId:g.caregiverId,status:'active'});if(!link)continue;
- await LocationHealthSession.updateOne({linkId:link._id,grantId:g._id},{$setOnInsert:{patientId:g.patientId,caregiverId:g.caregiverId,linkId:link._id,grantId:g._id,startedAt:now,rev:0}},{upsert:true});}
+ try{await LocationHealthSession.updateOne({linkId:link._id,grantId:g._id},{$setOnInsert:{patientId:g.patientId,caregiverId:g.caregiverId,linkId:link._id,grantId:g._id,startedAt:now,rev:0}},{upsert:true});}catch(e:any){if(e?.code!==11000)throw e;}}
 }
 export async function recordHealthFix(patientId:any,fix:Fix,now=Date.now()){
  if(!healthEnabled()||!isValidFix(fix)||fix.recordedAt>now+30000||now-fix.recordedAt>HEALTH_THRESHOLD_MS)return;
@@ -38,7 +38,7 @@ export async function healthForCaregiver(actor:any,patientId:string,now=Date.now
  const s=(await Promise.all(sessions.map(async x=>await current(x)?x:null))).find(Boolean);if(!s)throw new LinkError(403,'Location sharing unavailable');
  const last=s.lastFreshAt??s.startedAt;return {status:now-last>=HEALTH_THRESHOLD_MS?'unavailable':s.lastFreshAt===undefined?'waiting':'receiving',lastFreshAt:s.lastFreshAt??null,sharingStartedAt:s.startedAt,thresholdMs:HEALTH_THRESHOLD_MS,schedulerActive:healthSchedulerActive()};
 }
-async function eventAccess(e:any,now:number){if(!e||now-e.occurredAt>300000||e.occurredAt>now+30000)return null;const s:any=await LocationHealthSession.findById(e.sessionId);return s&&s.outageId===e.outageId&&await current(s)&&now-(s.lastFreshAt??s.startedAt)>=HEALTH_THRESHOLD_MS?s:null;}
+async function eventAccess(e:any,now:number,pending=false){if(!e||!pending&&(now-e.occurredAt>300000||e.occurredAt>now+30000))return null;const s:any=await LocationHealthSession.findById(e.sessionId);return s&&s.outageId===e.outageId&&await current(s)&&now-(s.lastFreshAt??s.startedAt)>=HEALTH_THRESHOLD_MS?s:null;}
 export async function readHealthEvent(actor:any,id:string,now=Date.now()){
  if(!healthEnabled()||actor.role!=='caregiver'||!mongoose.isValidObjectId(id))throw new LinkError(404,'Alert unavailable');const e:any=await LocationHealthEvent.findOne({_id:id,userId:actor._id,status:{$in:['processing','sent']}});if(!await eventAccess(e,now))throw new LinkError(404,'Alert no longer current');
  return {eventId:String(e._id),patientId:String(e.patientId),recipientId:String(e.userId),occurredAt:e.occurredAt,lastFreshAt:e.lastFreshAt??null};
@@ -51,12 +51,12 @@ export async function sweepLocationHealth(send:CareSender|null=makeFcmSender(),n
  if(!await current(s)){await LocationHealthEvent.updateMany({sessionId:s._id,status:'pending'},{$set:{status:'cancelled',reason:'access ended'}});await LocationHealthSession.deleteOne({_id:s._id});continue;}
  if(now-(s.lastFreshAt??s.startedAt)<HEALTH_THRESHOLD_MS)continue;
  let outage=s.outageId;if(!outage){outage=String(new mongoose.Types.ObjectId());const won=await LocationHealthSession.updateOne({_id:s._id,rev:s.rev,outageId:{$exists:false}},{$set:{outageId:outage},$inc:{rev:1}});if(!won.modifiedCount)continue;}
- const e:any=await LocationHealthEvent.findOneAndUpdate({sessionId:s._id,outageId:outage},{$setOnInsert:{sessionId:s._id,outageId:outage,userId:s.caregiverId,patientId:s.patientId,occurredAt:now,lastFreshAt:s.lastFreshAt,status:'pending'}},{upsert:true,new:true});
+ let e:any;try{e=await LocationHealthEvent.findOneAndUpdate({sessionId:s._id,outageId:outage},{$setOnInsert:{sessionId:s._id,outageId:outage,userId:s.caregiverId,patientId:s.patientId,occurredAt:now,lastFreshAt:s.lastFreshAt,status:'pending'}},{upsert:true,returnDocument:'after'});}catch(error:any){if(error?.code!==11000)throw error;e=await LocationHealthEvent.findOne({sessionId:s._id,outageId:outage});}if(!e)continue;
  if(e.status!=='pending'||s.attemptedOutageId===outage)continue;
- if(!await eventAccess(e,now)){await LocationHealthEvent.updateOne({_id:e._id,status:'pending'},{$set:{status:'cancelled',reason:'no longer current'}});result.cancelled++;continue;}
+ if(!await eventAccess(e,now,true)){await LocationHealthEvent.updateOne({_id:e._id,status:'pending'},{$set:{status:'cancelled',reason:'no longer current'}});result.cancelled++;continue;}
  if(!send||!await DeviceToken.exists({userId:s.caregiverId,locationHealthV1:true})){result.waitingForDevice++;continue;}
- const won=await LocationHealthEvent.findOneAndUpdate({_id:e._id,status:'pending'},{$set:{status:'processing'}});if(!won)continue;
- await LocationHealthSession.updateOne({_id:s._id,outageId:outage},{$set:{attemptedOutageId:outage}});
+ const sessionClaim=await LocationHealthSession.updateOne({_id:s._id,outageId:outage,attemptedOutageId:{$ne:outage}},{$set:{attemptedOutageId:outage}});if(!sessionClaim.modifiedCount)continue;
+ const won=await LocationHealthEvent.findOneAndUpdate({_id:e._id,status:'pending'},{$set:{status:'processing',occurredAt:now}});if(!won)continue;e.occurredAt=now;
  // Revalidate after atomic claim. Provider ambiguity is not replayed.
  if(!await eventAccess(e,now)){await LocationHealthEvent.updateOne({_id:e._id},{$set:{status:'cancelled',reason:'no longer current'}});result.cancelled++;continue;}
  try{const state=await send({userId:String(s.caregiverId),kind:'location_unavailable',title:'Location updates stopped',body:'Open AlzheFi to check the last update time. This is not a boundary alert.',data:{patientId:String(s.patientId),eventId:String(e._id)}});await LocationHealthEvent.updateOne({_id:e._id},{$set:{status:state}});if(state==='sent')result.sent++;}
