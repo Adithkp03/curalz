@@ -1,0 +1,10 @@
+import express from 'express';
+import {protect} from '../middleware/auth.middleware';
+import {LinkError} from '../services/careLink.service';
+import {locationCronAuthorized,sweepLocationHealth,healthForCaregiver,readHealthEvent} from './service';
+export const locationHealthRouter=express.Router();
+locationHealthRouter.post('/jobs/sweep',async(req,res)=>{if(!locationCronAuthorized(req.headers.authorization))return res.status(401).json({error:'Unauthorized'});try{res.json(await sweepLocationHealth());}catch{res.status(500).json({error:'Location sweep incomplete'});}});
+locationHealthRouter.use(protect);
+const run=(fn:(r:any)=>Promise<any>)=>async(r:any,res:any)=>{try{res.json(await fn(r));}catch(e){if(e instanceof LinkError)return res.status(e.status).json({error:e.message});res.status(500).json({error:'Location health unavailable'});}};
+locationHealthRouter.get('/events/:id',run(r=>readHealthEvent(r.user,r.params.id)));
+locationHealthRouter.get('/:patientId',run(r=>healthForCaregiver(r.user,r.params.patientId)));

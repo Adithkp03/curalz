@@ -1,0 +1,1 @@
+{"name":"alzhefi-location-health-test","main":"worker.ts","compatibility_date":"2026-11-18","workers_dev":false,"observability":{"enabled":false},"triggers":{"crons":["* * * * *"]}}

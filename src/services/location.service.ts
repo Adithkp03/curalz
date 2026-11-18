@@ -1,3 +1,4 @@
+import {recordHealthFix} from '../location-health/service';
 import mongoose from 'mongoose';
 import {createHash} from 'node:crypto';
 import CareLink from '../models/CareLink';
@@ -101,6 +102,7 @@ export async function ingestPatientFix(patient: any, raw: any, now = Date.now(),
     }
     if (!stored) throw new LinkError(409, 'Busy, retry');
     if (alert) await materializePendingExit(patient._id);
+    await recordHealthFix(patient._id,fix,now);
     await Promise.all(caregivers.map(c => nearbyCheck(patient, c, now, cfg)));
     return { stored: true, alert };
 }
@@ -223,9 +225,9 @@ export async function liveLocation(caregiver: any, patientId: string, now = Date
     return { status: 'live' as const, lat, lon, accuracyM, recordedAt, ageMs };
 }
 
-export async function registerDeviceToken(user: any, token: unknown, platform = 'android', boundaryAlertV1 = false) {
+export async function registerDeviceToken(user: any, token: unknown, platform = 'android', boundaryAlertV1 = false, locationHealthV1 = false) {
     if (typeof token !== 'string' || token.length < 20 || token.length > 4096) throw new LinkError(400, 'Invalid token');
-    await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform, boundaryAlertV1: boundaryAlertV1 === true } }, { upsert: true });
+    await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform, boundaryAlertV1: boundaryAlertV1 === true, locationHealthV1:locationHealthV1===true } }, { upsert: true });
     return { ok: true };
 }
 

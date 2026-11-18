@@ -37,7 +37,7 @@ export const fcmDiagnostic = async () => {
     return out;
 };
 
-export type CarePush=Omit<Notification,'kind'>&{kind:Notification['kind']|'medication_followup'};
+export type CarePush=Omit<Notification,'kind'>&{kind:Notification['kind']|'medication_followup'|'location_unavailable'};
 export type CareSender=(n:CarePush)=>Promise<'sent'|'logged'>;
 export const makeFcmSender = (): CareSender | null => {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -49,7 +49,7 @@ export const makeFcmSender = (): CareSender | null => {
         return messaging;
     };
     return async n => {
-        const devices: any[] = await DeviceToken.find({ userId: n.userId } as any);
+        const devices: any[] = await DeviceToken.find({ userId: n.userId,...(n.kind==='location_unavailable'?{locationHealthV1:true}:{}) } as any);
         const tokens = devices.map(t => t.token);
         if (!tokens.length) throw new Error('no registered device');
         const m = await init();
@@ -58,7 +58,7 @@ export const makeFcmSender = (): CareSender | null => {
         // the new handler get data-only boundary events and create their own FSI.
         const res = await m.sendEach(devices.map(d => ({
             token: d.token,
-            ...((clear || n.kind==='medication_followup' || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
+            ...((clear || n.kind==='location_unavailable' || n.kind==='medication_followup' || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
             data: { kind: n.kind, patientId: n.data?.patientId ?? '', eventId: n.data?.eventId ?? '', recipientId: n.userId },
             android: { priority: 'high', ttl: 300000, ...(n.kind === 'battery_low' ? { notification: { tag: `battery-low-${n.data?.patientId ?? ''}` } } : {}) },
         })));

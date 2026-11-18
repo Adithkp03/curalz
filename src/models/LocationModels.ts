@@ -42,6 +42,7 @@ export const NearbyStateModel = mongoose.model('NearbyState', NearbyStateSchema)
 
 /** Push token registry (FCM). Token is overwritten by owner so a handed-over phone never notifies the old user. */
 const DeviceTokenSchema = new Schema({
+    locationHealthV1: {type:Boolean,default:false},
     boundaryAlertV1: { type: Boolean, default: false },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     token: { type: String, required: true, unique: true },
