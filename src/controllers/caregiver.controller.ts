@@ -68,7 +68,9 @@ export const getPatientProfile = async (req: AuthRequest, res: Response) => {
  */
 export const updatePatientProfile = async (req: AuthRequest, res: Response) => {
     const id = String(req.params.id);
-    const { name, email } = req.body;
+    // A caregiver may correct the display name only. Changing a patient's login email would
+    // let a caregiver take over the account, so it is not allowed.
+    const { name } = req.body;
 
     try {
         if (req.user.role !== 'caregiver') {
@@ -84,9 +86,13 @@ export const updatePatientProfile = async (req: AuthRequest, res: Response) => {
             return res.status(403).json({ error: 'Patient not linked to this caregiver' });
         }
 
+        if (typeof name !== 'string' || !name.trim()) {
+            return res.status(400).json({ error: 'Name required' });
+        }
+
         const patient = await User.findByIdAndUpdate(
             id,
-            { name, email },
+            { name: name.trim() },
             { new: true }
         ).select('-password');
 

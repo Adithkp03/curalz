@@ -7,30 +7,33 @@ interface AuthRequest extends Request {
 }
 
 export const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
-    let token;
+    const header = req.headers.authorization;
 
-    if (
-        req.headers.authorization &&
-        req.headers.authorization.startsWith('Bearer')
-    ) {
-        try {
-            token = req.headers.authorization.split(' ')[1];
-
-            const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
-
-            req.user = await User.findById(decoded.id).select('-password');
-
-            if (!req.user) return res.status(401).json({ message: 'Not authorized' });
-            next();
-        } catch (error) {
-            console.error(error);
-            res.status(401).json({ message: 'Not authorized, token failed' });
-        }
+    if (!header || !header.startsWith('Bearer')) {
+        return res.status(401).json({ message: 'Not authorized, no token', code: 'NO_TOKEN' });
     }
 
-    if (!token) {
-        res.status(401).json({ message: 'Not authorized, no token' });
+    const token = header.split(' ')[1];
+
+    let decoded: any;
+    try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET!);
+    } catch (error) {
+        // Only the token itself failing verification is a 401.
+        return res.status(401).json({ message: 'Not authorized, token failed', code: 'TOKEN_INVALID' });
     }
+
+    try {
+        req.user = await User.findById(decoded.id).select('-password');
+    } catch (error) {
+        // A database hiccup is not an auth failure: reporting 401 here made
+        // clients wipe a perfectly valid saved session.
+        console.error(error);
+        return res.status(500).json({ message: 'Server error', code: 'SERVER_ERROR' });
+    }
+
+    if (!req.user) return res.status(401).json({ message: 'Not authorized', code: 'USER_NOT_FOUND' });
+    next();
 };
 
 export const authorize = (...roles: string[]) => {

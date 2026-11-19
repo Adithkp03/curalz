@@ -1,0 +1,12 @@
+import mongoose,{Schema} from 'mongoose';
+const grant=new Schema({patientId:{type:Schema.Types.ObjectId,required:true},caregiverId:{type:Schema.Types.ObjectId,required:true},active:{type:Boolean,default:true},linkId:Schema.Types.ObjectId},{timestamps:true});grant.index({patientId:1,caregiverId:1},{unique:true});
+export const MedicationGrant=mongoose.model('MedicationGrant',grant);
+const plan=new Schema({patientId:{type:Schema.Types.ObjectId,required:true},clientRequestId:String,requestFingerprint:String,name:String,doseText:String,instructions:String,times:[String],timezone:String,startDate:String,endDate:String,active:{type:Boolean,default:true},effectiveAt:Date,rev:{type:Number,default:1},createdBy:Schema.Types.ObjectId,updatedBy:Schema.Types.ObjectId,history:[{snapshot:Schema.Types.Mixed,actor:Schema.Types.ObjectId,at:Date,action:String}]},{timestamps:true});plan.index({patientId:1});plan.index({patientId:1,clientRequestId:1},{unique:true,partialFilterExpression:{clientRequestId:{$type:'string'}}});
+export const MedicationPlan=mongoose.model('MedicationPlan',plan);
+const occurrence=new Schema({patientId:{type:Schema.Types.ObjectId,required:true},planId:{type:Schema.Types.ObjectId,required:true},planRev:Number,dueAt:{type:Date,required:true},name:String,doseText:String,instructions:String,timezone:String,state:{type:String,enum:['not_confirmed','reported_taken','reported_skipped','cancelled'],default:'not_confirmed'},rev:{type:Number,default:0},reporter:Schema.Types.ObjectId,reporterRole:String,reportedAt:Date,history:[{state:String,actor:Schema.Types.ObjectId,role:String,at:Date}],followupClaimedAt:Date},{timestamps:true});occurrence.index({planId:1,dueAt:1},{unique:true});
+export const MedicationDose=mongoose.model('MedicationDose',occurrence);
+
+const prefs=new Schema({patientId:{type:Schema.Types.ObjectId,unique:true,required:true},followupOn:{type:Boolean,default:false},graceMinutes:{type:Number,default:30}},{timestamps:true});
+export const MedicationPreferences=mongoose.model('MedicationPreferences',prefs);
+const followup=new Schema({doseId:{type:Schema.Types.ObjectId,unique:true,required:true},patientId:Schema.Types.ObjectId,caregiverId:Schema.Types.ObjectId,linkId:Schema.Types.ObjectId,status:{type:String,enum:['queued','processing','provider_accepted','cancelled','failed'],default:'queued'},reason:String,attemptedAt:Date},{timestamps:true});
+export const MedicationFollowup=mongoose.model('MedicationFollowup',followup);
