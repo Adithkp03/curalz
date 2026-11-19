@@ -8,6 +8,7 @@ import { LinkError } from './careLink.service';
 import { hasLocationAuthority } from './locationAuthority.service';
 import { PROPOSED_LOCATION_CONFIG, LocationConfig } from '../location/config';
 import { batteryDispatchCheck, batteryOnAccessEnded } from './battery.service';
+import { openEpisode, noteEpisodeFix, repeatZoneChanged, repeatAccessEnded } from '../boundary-repeat/service';
 import { Fix, isValidFix, validateZone, stepBoundary, stepNearby } from '../location/evaluate';
 
 export interface Notification { userId: string; kind: 'patient_left_zone' | 'caregiver_nearby' | 'care_link_request' | 'battery_low' | 'battery_clear'; title: string; body: string; data?: Record<string, string> }
@@ -36,9 +37,10 @@ export async function setZone(actor: any, patientId: string, zone: any, cfg: Loc
     if(zone?.name!==undefined){if(typeof zone.name!=='string'||zone.name.length>60||/[\x00-\x1f]/.test(zone.name))throw new LinkError(400,'Invalid safe-area name');z.name=zone.name.trim();}
     if(zone?.isHome!==undefined){if(typeof zone.isHome!=='boolean')throw new LinkError(400,'Invalid home selection');z.isHome=zone.isHome;}
     if (!validateZone(z, cfg)) throw new LinkError(400, 'Invalid boundary');
-    await SafeZone.findOneAndUpdate({ patientId }, { $set: { ...z, setBy: actor._id }, $inc: { rev: 1 } }, { upsert: true, new: true });
+    const saved: any = await SafeZone.findOneAndUpdate({ patientId }, { $set: { ...z, setBy: actor._id }, $inc: { rev: 1 } }, { upsert: true, new: true });
     // A zone change invalidates any exit alert computed against the old zone.
     await Outbox.updateMany({ patientId, kind: 'patient_left_zone', status: 'queued' } as any, { $set: { status: 'cancelled', reason: 'zone changed' } });
+    if (saved) await repeatZoneChanged(patientId, saved.rev);
     return z;
 }
 
@@ -79,6 +81,8 @@ export async function materializePendingExit(patientId:any) {
         await Outbox.updateOne({_id:new mongoose.Types.ObjectId(id)},{$setOnInsert:{userId,patientId,kind:'patient_left_zone',title:p.title,body:'Open the app to see their live location.',zoneRev:p.zoneRev,fixRecordedAt:p.fix.recordedAt,data:{patientId:String(patientId),lat:String(p.fix.lat),lon:String(p.fix.lon),accuracyM:String(p.fix.accuracyM),recordedAt:String(p.fix.recordedAt)},status:'queued',retryNoDevice:true,createdAt:new Date(p.createdAt)}},{upsert:true});
     }
     await PatientLocationState.updateOne({patientId,'pendingExit.id':p.id},{$unset:{pendingExit:1}});
+    // The same confirmed exit opens the repeat-reminder episode (no-op when the repeat feature is off).
+    await openEpisode(patientId,p.zoneRev,p.fix,p.recipients,p.id,p.createdAt);
 }
 
 /** Patient device reports a fix. Sharing is on only while at least one grant is active (patient opt-in, until turned off). */
@@ -104,6 +108,7 @@ export async function ingestPatientFix(patient: any, raw: any, now = Date.now(),
     }
     if (!stored) throw new LinkError(409, 'Busy, retry');
     if (alert) await materializePendingExit(patient._id);
+    await noteEpisodeFix(patient._id, fix, zone, now);
     await recordHealthFix(patient._id,fix,now);
     await Promise.all(caregivers.map(c => nearbyCheck(patient, c, now, cfg)));
     return { stored: true, alert };
@@ -140,6 +145,7 @@ export async function setCaregiverSharing(caregiver: any, on: boolean) {
 /** Called whenever a grant/link ends: drop queued work for that pair, and the stored position if nobody can see it any more. */
 export async function onAccessEnded(patientId: any, caregiverId: any) {
     await batteryOnAccessEnded(patientId, caregiverId);
+    await repeatAccessEnded(patientId, caregiverId);
     await Outbox.updateMany({ patientId, status: 'queued', $or: [{ userId: caregiverId }, { caregiverId }] } as any, { $set: { status: 'cancelled', reason: 'access ended' } });
     if (!(await authorizedCaregivers(patientId)).length) {
         await PatientLocationState.deleteMany({ patientId });
@@ -227,9 +233,9 @@ export async function liveLocation(caregiver: any, patientId: string, now = Date
     return { status: 'live' as const, lat, lon, accuracyM, recordedAt, ageMs };
 }
 
-export async function registerDeviceToken(user: any, token: unknown, platform = 'android', boundaryAlertV1 = false, locationHealthV1 = false) {
+export async function registerDeviceToken(user: any, token: unknown, platform = 'android', boundaryAlertV1 = false, locationHealthV1 = false, boundaryRepeatV1 = false) {
     if (typeof token !== 'string' || token.length < 20 || token.length > 4096) throw new LinkError(400, 'Invalid token');
-    await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform, boundaryAlertV1: boundaryAlertV1 === true, locationHealthV1:locationHealthV1===true } }, { upsert: true });
+    await DeviceToken.findOneAndUpdate({ token }, { $set: { userId: user._id, platform, boundaryAlertV1: boundaryAlertV1 === true, locationHealthV1:locationHealthV1===true, boundaryRepeatV1:boundaryRepeatV1===true } }, { upsert: true });
     return { ok: true };
 }
 

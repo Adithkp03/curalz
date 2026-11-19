@@ -1,0 +1,1 @@
+{"name":"alzhefi-boundary-repeat-test","main":"worker.ts","compatibility_date":"2026-11-19","workers_dev":false,"observability":{"enabled":false},"triggers":{"crons":["* * * * *"]}}

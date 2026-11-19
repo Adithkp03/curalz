@@ -85,7 +85,7 @@ export const makeLocationRouter = (send: Sender = logOnlySender) => {
     router.post('/caregiver-sharing/on', run(req => setCaregiverSharing(req.user, true)));
     router.post('/caregiver-sharing/off', run(req => setCaregiverSharing(req.user, false)));
     router.get('/live/:patientId', run(req => liveLocation(req.user, req.params.patientId)));
-    router.post('/device-token', run(req => registerDeviceToken(req.user, req.body?.token, 'android', req.body?.boundaryAlertV1 === true,req.body?.locationHealthV1 === true)));
+    router.post('/device-token', run(req => registerDeviceToken(req.user, req.body?.token, 'android', req.body?.boundaryAlertV1 === true,req.body?.locationHealthV1 === true,req.body?.boundaryRepeatV1 === true)));
     router.post('/device-token/remove', run(req => unregisterDeviceToken(req.user, req.body?.token)));
     return router;
 };

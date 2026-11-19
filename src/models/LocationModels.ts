@@ -45,6 +45,7 @@ export const NearbyStateModel = mongoose.model('NearbyState', NearbyStateSchema)
 const DeviceTokenSchema = new Schema({
     locationHealthV1: {type:Boolean,default:false},
     boundaryAlertV1: { type: Boolean, default: false },
+    boundaryRepeatV1: { type: Boolean, default: false },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     token: { type: String, required: true, unique: true },
     platform: { type: String, default: 'android' },

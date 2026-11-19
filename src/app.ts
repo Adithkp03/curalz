@@ -1,5 +1,6 @@
 import {mapsRouter} from './maps/routes';
 import {locationHealthRouter} from './location-health/routes';
+import {boundaryRepeatRouter} from './boundary-repeat/routes';
 import {medicationRouter} from './medication/routes';
 import express from "express";
 import cors from "cors";
@@ -61,6 +62,7 @@ if (testMode) {
   app.use('/api/caregiver', caregiverPatientsRouter); // test host: only the approved-patient list; other caregiver data stays unmounted (404)
   app.use('/api/maps',mapsRouter);
   app.use('/api/location-health',locationHealthRouter);
+  app.use('/api/location/boundary-repeat',boundaryRepeatRouter); // isolated repeat reminders; own cron secret and device capability
   app.use('/api/medication',medicationRouter); // isolated test module; never mounts legacy reminder access
   app.use('/api/location', makeLocationRouter(makeFcmSender() ?? undefined));
   app.get('/', (_req, res) => res.send('AlzheFi location test host'));

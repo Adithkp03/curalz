@@ -37,7 +37,7 @@ export const fcmDiagnostic = async () => {
     return out;
 };
 
-export type CarePush=Omit<Notification,'kind'>&{kind:Notification['kind']|'medication_followup'|'location_unavailable'};
+export type CarePush=Omit<Notification,'kind'>&{kind:Notification['kind']|'medication_followup'|'location_unavailable'|'boundary_repeat'};
 export type CareSender=(n:CarePush)=>Promise<'sent'|'logged'>;
 export const makeFcmSender = (): CareSender | null => {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -49,17 +49,18 @@ export const makeFcmSender = (): CareSender | null => {
         return messaging;
     };
     return async n => {
-        const devices: any[] = await DeviceToken.find({ userId: n.userId,...(n.kind==='location_unavailable'?{locationHealthV1:true}:{}) } as any);
+        const devices: any[] = await DeviceToken.find({ userId: n.userId,...(n.kind==='location_unavailable'?{locationHealthV1:true}:{}),...(n.kind==='boundary_repeat'?{boundaryRepeatV1:true}:{}) } as any);
         const tokens = devices.map(t => t.token);
         if (!tokens.length) throw new Error('no registered device');
         const m = await init();
         const clear = n.kind === 'battery_clear';
         // Old APKs still receive a system notification. Only clients advertising
         // the new handler get data-only boundary events and create their own FSI.
+        // boundary_repeat is always data-only and only ever targets boundaryRepeatV1 devices.
         const res = await m.sendEach(devices.map(d => ({
             token: d.token,
-            ...((clear || n.kind==='location_unavailable' || n.kind==='medication_followup' || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
-            data: { kind: n.kind, patientId: n.data?.patientId ?? '', eventId: n.data?.eventId ?? '', recipientId: n.userId },
+            ...((clear || n.kind==='location_unavailable' || n.kind==='medication_followup' || n.kind==='boundary_repeat' || (n.kind === 'patient_left_zone' && d.boundaryAlertV1)) ? {} : { notification: { title: n.title, body: n.body } }),
+            data: { kind: n.kind, patientId: n.data?.patientId ?? '', eventId: n.data?.eventId ?? '', ...(n.data?.episodeId ? { episodeId: n.data.episodeId } : {}), recipientId: n.userId },
             android: { priority: 'high', ttl: 300000, ...(n.kind === 'battery_low' ? { notification: { tag: `battery-low-${n.data?.patientId ?? ''}` } } : {}) },
         })));
         const bad = res.responses.map((r: any, i: number) => (!r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code ?? '') ? tokens[i] : null)).filter(Boolean);

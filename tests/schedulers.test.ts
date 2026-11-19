@@ -1,9 +1,11 @@
 import {describe,it,expect,vi} from 'vitest';
 import locationWorker from '../location-scheduler/worker';
 import medicationWorker from '../medication-scheduler/worker';
+import boundaryRepeatWorker from '../boundary-repeat-scheduler/worker';
 for (const [name,worker,key,path] of [
  ['location',locationWorker,'LOCATION_SWEEP_KEY','location-health'],
  ['medication',medicationWorker,'MEDICATION_SWEEP_KEY','medication'],
+ ['boundary-repeat',boundaryRepeatWorker,'BOUNDARY_REPEAT_SWEEP_KEY','location/boundary-repeat'],
 ] as const) {
  describe(name+' Cloudflare scheduler',()=>{
   for(const status of [200,302,401,500])it('handles HTTP '+status+' without following redirects',async()=>{
